@@ -1,0 +1,42 @@
+dependencies:
+  h2zero/esp-nimble-cpp:
+    component_hash: 720050476f7fb47bd0aa08a94642fd09a50536391d60081858702a789405d76f
+    dependencies:
+    - name: espressif/esp_hosted
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: target in [esp32p4]
+      version: '*'
+    - name: espressif/esp_wifi_remote
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: target in [esp32p4]
+      version: '>=0.5.3'
+    - name: idf
+      require: private
+      rules:
+      - if: target in [esp32p4]
+      version: '>=5.3.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.5.0
+  idf:
+    source:
+      type: idf
+    version: 5.4.2
+  lvgl/lvgl:
+    component_hash: 17e68bfd21f0edf4c3ee838e2273da840bf3930e5dbc3bfa6c1190c3aed41f9f
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.4.0
+direct_dependencies:
+- h2zero/esp-nimble-cpp
+- lvgl/lvgl
+manifest_hash: 74dd107ef1b7583100876ea1019161a6e2396336644c876b9756d7c17804dda2
+target: esp32s3
+version: 2.0.0
