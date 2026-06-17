@@ -4,3 +4,4 @@ outputs/
 managed_components/
 sdkconfig
 sdkconfig.old
+.cc/ 

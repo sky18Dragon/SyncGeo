@@ -17,10 +17,131 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 
+extern "C" {
+LV_FONT_DECLARE(furble_font_zh_14);
+}
+
 namespace {
 constexpr char TAG[] = "ui";
 constexpr size_t CAMERA_PAGE_LINES = 4;
 enum class HomeAction { SCAN, SAVED, GPS, REMOTE, DISCONNECT, SLEEP };
+
+// Localisation mapping
+typedef struct {
+  const char* en;
+  const char* zh;
+} UI_Text;
+
+static int current_lang = 1; // 0 for EN, 1 for ZH
+static inline const char* L(const UI_Text& text) {
+    return current_lang == 0 ? text.en : text.zh;
+}
+
+const UI_Text T_HOME_SCAN = {"Scan", "扫描"};
+const UI_Text T_HOME_CAMERAS = {"Cameras", "相机列表"};
+const UI_Text T_HOME_GPS = {"GPS", "定位"};
+const UI_Text T_HOME_REMOTE = {"Remote", "遥控器"};
+const UI_Text T_HOME_DISCONNECT = {"Disconnect", "断开连接"};
+const UI_Text T_HOME_SLEEP = {"Sleep", "休眠"};
+
+const UI_Text T_CAM_FUJI = {"Fuji", "富士"};
+const UI_Text T_CAM_FUJIS = {"FujiS", "富士(安全)"};
+const UI_Text T_CAM_CANONS = {"CanonS", "佳能(智能)"};
+const UI_Text T_CAM_CANONR = {"CanonR", "佳能(遥控)"};
+const UI_Text T_CAM_NIKON = {"Nikon", "尼康"};
+const UI_Text T_CAM_SONY = {"Sony", "索尼"};
+const UI_Text T_CAM_RICOH = {"Ricoh", "理光"};
+const UI_Text T_CAM_FAUXNY = {"FauxNY", "FauxNY"};
+const UI_Text T_CAM_DEFAULT = {"Camera", "相机"};
+
+const UI_Text T_SYNCGEO = {"SyncGeo", "SyncGeo"};
+const UI_Text T_MENU = {"menu", "菜单"};
+
+const UI_Text T_TITLE_SCAN = {"< scan", "< 扫描"};
+const UI_Text T_LOOKING_FOR_CAM = {"looking for camera", "正在寻找相机"};
+const UI_Text T_SCAN_TIME = {"time %lus / %lus", "时间 %lus / %lus"};
+const UI_Text T_SCAN_MATCHES = {"matches %u", "已找到 %u"};
+const UI_Text T_PAIRING_MODE = {"pairing mode", "配对模式"};
+const UI_Text T_KEEP_AWAKE = {"keep awake", "保持唤醒"};
+const UI_Text T_CANCEL = {"Cancel", "取消"};
+const UI_Text T_TAP_CANCEL = {"tap cancel", "点击取消"};
+const UI_Text T_PREPARING_SCAN = {"Preparing scan", "准备扫描"};
+const UI_Text T_LOADING_SAVED = {"Loading saved", "载入相机"};
+
+const UI_Text T_TITLE_SCAN_RESULTS = {"< scan results", "< 扫描结果"};
+const UI_Text T_TITLE_CAMERAS = {"< cameras", "< 相机"};
+const UI_Text T_NO_CAMERAS = {"no cameras found", "未找到相机"};
+const UI_Text T_TRY_SCAN_AGAIN = {"try scan again", "请重试扫描"};
+const UI_Text T_USE_SCAN_FIRST = {"use Scan first", "请先扫描"};
+
+const UI_Text T_TITLE_CONNECTING = {"< connecting", "< 连接中"};
+const UI_Text T_STATE_FMT = {"state %s", "状态 %s"};
+const UI_Text T_PROGRESS_FMT = {"progress %u%%", "进度 %u%%"};
+const UI_Text T_PROGRESS_WAIT = {"progress wait", "等待中"};
+const UI_Text T_MAY_TAKE_30S = {"may take 30 sec", "可能需要 30 秒"};
+const UI_Text T_KEEP_CAM_AWAKE = {"keep camera awake", "保持相机唤醒"};
+
+const UI_Text T_TITLE_REMOTE = {"< remote", "< 遥控"};
+const UI_Text T_TARGETS_FMT = {"%s  %u target", "%s  %u 目标"};
+const UI_Text T_SHUTTER = {"Shutter", "快门"};
+const UI_Text T_BACK = {"Back", "返回"};
+const UI_Text T_BUTTONS_WORK = {"buttons still work", "实体按键可用"};
+
+const UI_Text T_TITLE_GPS = {"< gps", "< 定位"};
+const UI_Text T_GPS_ON_OFF = {"GPS  %s", "GPS  %s"};
+const UI_Text T_ON = {"ON", "开"};
+const UI_Text T_OFF = {"OFF", "关"};
+const UI_Text T_TAP_TO_TURN_ON = {"Tap to turn on", "点击开启"};
+const UI_Text T_GPS_RX_INFO = {"RX IO44  9600", "接收脚 IO44 9600"};
+const UI_Text T_GPS_TX_INFO = {"TX not required", "无需发送脚"};
+const UI_Text T_WAITING_NMEA = {"waiting NMEA", "等待 NMEA 数据"};
+const UI_Text T_SEARCHING_FIX = {"searching fix", "正在搜星定位"};
+const UI_Text T_NMEA_AGE = {"NMEA age %s", "NMEA 延迟 %s"};
+const UI_Text T_SAT_FIX = {"sat %u  fix %u", "卫星 %u  定位 %u"};
+const UI_Text T_KEEP_ANTENNA_OPEN = {"keep antenna open", "保持天线无遮挡"};
+const UI_Text T_OUTDOORS_HELPS = {"outdoors helps", "户外信号更好"};
+const UI_Text T_AGE_SAT = {"age %s  sat %u", "延迟 %s  卫星 %u"};
+const UI_Text T_LAT = {"lat %.6f", "纬度 %.6f"};
+const UI_Text T_LON = {"lon %.6f", "经度 %.6f"};
+const UI_Text T_ALT = {"alt %.1fm", "海拔 %.1fm"};
+const UI_Text T_UTC_UNKNOWN = {"UTC --", "时间未知"};
+const UI_Text T_TAP_BACK = {"tap < back", "点击返回"};
+
+const UI_Text T_TITLE_CONFIRM = {"< confirm", "< 确认"};
+const UI_Text T_CONFIRM_PROMPT = {"confirm?", "确认吗？"};
+const UI_Text T_YES = {"Yes", "是"};
+const UI_Text T_NO = {"No", "否"};
+
+const UI_Text T_FOCUS_UNKNOWN = {"Focus --", "对焦 --"};
+const UI_Text T_2S_SHOT = {"2s Shot", "2秒延迟"};
+const UI_Text T_FOCUS = {"Focus", "对焦"};
+
+const UI_Text T_STATE_IDLE = {"idle", "空闲"};
+const UI_Text T_STATE_CONNECT = {"connect", "连接"};
+const UI_Text T_STATE_CONNECTING = {"connecting", "连接中"};
+const UI_Text T_STATE_FAILED = {"failed", "失败"};
+const UI_Text T_STATE_ACTIVE = {"active", "已激活"};
+const UI_Text T_STATE_DISCONNECT = {"disconnect", "断开"};
+const UI_Text T_STATE_UNKNOWN = {"?", "?"};
+
+const UI_Text T_CRITICAL_BATTERY = {"Critical battery %d%%", "电量严重不足 %d%%"};
+const UI_Text T_LOW_BATTERY = {"Low battery %d%%", "电量低 %d%%"};
+const UI_Text T_IDLE_TIMEOUT = {"Idle timeout", "空闲超时"};
+const UI_Text T_MANUAL_SLEEP = {"Manual sleep", "手动休眠"};
+const UI_Text T_CONFIRMED_SLEEP = {"Confirmed sleep", "已确认休眠"};
+const UI_Text T_DISCONNECTED = {"Disconnected", "已断开"};
+
+const UI_Text T_NO_CAM_SELECTED = {"No camera selected", "未选择相机"};
+const UI_Text T_CONNECT_FAILED = {"Connect failed", "连接失败"};
+const UI_Text T_NOT_CONNECTED = {"Not connected", "未连接"};
+const UI_Text T_NO_ACTIVE_CAM = {"No active camera", "没有激活的相机"};
+const UI_Text T_DISCONNECT_Q = {"disconnect?", "是否断开？"};
+const UI_Text T_SLEEP_Q = {"sleep?", "是否休眠？"};
+const UI_Text T_GPS_ENABLED = {"GPS enabled", "GPS 已开启"};
+const UI_Text T_GPS_DISABLED = {"GPS disabled", "GPS 已关闭"};
+const UI_Text T_NO_FOCUS_ACTION = {"No focus action", "无对焦操作"};
+const UI_Text T_WAIT = {"wait...", "请稍候..."};
+
 
 bool homeCameraConnected() { return Furble::Control::getInstance().getState() == Furble::Control::STATE_ACTIVE; }
 
@@ -47,18 +168,18 @@ HomeAction homeActionAt(size_t index, bool cameraConnected) {
 const char *homeActionLabel(HomeAction action) {
   switch (action) {
     case HomeAction::SCAN:
-      return "Scan";
+      return L(T_HOME_SCAN);
     case HomeAction::SAVED:
-      return "Cameras";
+      return L(T_HOME_CAMERAS);
     case HomeAction::GPS:
-      return "GPS";
+      return L(T_HOME_GPS);
     case HomeAction::REMOTE:
-      return "Remote";
+      return L(T_HOME_REMOTE);
     case HomeAction::DISCONNECT:
-      return "Disconnect";
+      return L(T_HOME_DISCONNECT);
     case HomeAction::SLEEP:
     default:
-      return "Sleep";
+      return L(T_HOME_SLEEP);
   }
 }
 
@@ -86,24 +207,24 @@ const char *cameraTypeName(Furble::Camera::Type type) {
   using Type = Furble::Camera::Type;
   switch (type) {
     case Type::FUJIFILM_BASIC:
-      return "Fuji";
+      return L(T_CAM_FUJI);
     case Type::FUJIFILM_SECURE:
-      return "FujiS";
+      return L(T_CAM_FUJIS);
     case Type::CANON_EOS_SMART:
-      return "CanonS";
+      return L(T_CAM_CANONS);
     case Type::CANON_EOS_REMOTE:
-      return "CanonR";
+      return L(T_CAM_CANONR);
     case Type::NIKON:
-      return "Nikon";
+      return L(T_CAM_NIKON);
     case Type::SONY:
-      return "Sony";
+      return L(T_CAM_SONY);
     case Type::RICOH:
-      return "Ricoh";
+      return L(T_CAM_RICOH);
     case Type::FAUXNY:
-      return "FauxNY";
+      return L(T_CAM_FAUXNY);
     case Type::MOBILE_DEVICE:
     default:
-      return "Camera";
+      return L(T_CAM_DEFAULT);
   }
 }
 
@@ -172,10 +293,10 @@ void UI::createScreen() {
   lv_obj_set_style_pad_all(screen, 0, 0);
 
   m_title = lv_label_create(screen);
-  lv_label_set_text(m_title, "SyncGeo");
+  lv_label_set_text(m_title, L(T_SYNCGEO));
   lv_obj_set_size(m_title, 200, 28);
   lv_label_set_long_mode(m_title, LV_LABEL_LONG_DOT);
-  lv_obj_set_style_text_font(m_title, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(m_title, &furble_font_zh_14, 0);
   lv_obj_set_style_text_align(m_title, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_pad_top(m_title, 5, 0);
   lv_obj_align(m_title, LV_ALIGN_TOP_MID, 0, 0);
@@ -184,7 +305,7 @@ void UI::createScreen() {
   lv_label_set_text(m_headerRight, "");
   lv_obj_set_width(m_headerRight, 64);
   lv_label_set_long_mode(m_headerRight, LV_LABEL_LONG_DOT);
-  lv_obj_set_style_text_font(m_headerRight, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(m_headerRight, &furble_font_zh_14, 0);
   lv_obj_set_style_text_align(m_headerRight, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_align(m_headerRight, LV_ALIGN_TOP_RIGHT, -16, 12);
   lv_obj_add_flag(m_headerRight, LV_OBJ_FLAG_HIDDEN);
@@ -214,18 +335,18 @@ void UI::createScreen() {
     m_lines[i] = lv_label_create(screen);
     lv_obj_set_width(m_lines[i], 156);
     lv_label_set_long_mode(m_lines[i], LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_font(m_lines[i], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(m_lines[i], &furble_font_zh_14, 0);
     lv_obj_align(m_lines[i], LV_ALIGN_TOP_LEFT, 22, y + 3);
   }
 
   m_footer = lv_label_create(screen);
   lv_obj_set_width(m_footer, 192);
   lv_label_set_long_mode(m_footer, LV_LABEL_LONG_DOT);
-  lv_obj_set_style_text_font(m_footer, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(m_footer, &furble_font_zh_14, 0);
   lv_obj_set_style_text_align(m_footer, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_align(m_footer, LV_ALIGN_BOTTOM_MID, 0, -2);
 
-  render("ready");
+  render();
 }
 
 void UI::setLine(size_t index, const char *text) {
@@ -262,7 +383,7 @@ void UI::setTitleBar(const char *title, bool inverted) {
 }
 
 void UI::setMenuHeader() {
-  setTitleBar("menu", false);
+  setTitleBar(L(T_MENU), false);
 }
 
 void UI::layoutRows(int startY, int step, int cardHeight) {
@@ -352,7 +473,7 @@ std::string UI::batteryText() const {
   if (m_batteryVoltage >= 0.0f && m_batteryPercent >= 0) {
     std::snprintf(buffer, sizeof(buffer), "%.2fV %d%%", m_batteryVoltage, m_batteryPercent);
   } else {
-    std::snprintf(buffer, sizeof(buffer), "battery --");
+    std::snprintf(buffer, sizeof(buffer), "电量 --");
   }
   return std::string(buffer);
 }
@@ -428,38 +549,38 @@ void UI::renderHome() {
 }
 
 void UI::renderScanning() {
-  setTitleBar("< scan", true);
+  setTitleBar(L(T_TITLE_SCAN), true);
   clearLineStyles();
   const uint32_t elapsed = Platform::getInstance().tick() - m_scanStartedMs;
   char line[96];
 
-  setLine(0, "looking for camera");
+  setLine(0, L(T_LOOKING_FOR_CAM));
   setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
-  std::snprintf(line, sizeof(line), "time %lus / %lus", static_cast<unsigned long>(elapsed / 1000),
+  std::snprintf(line, sizeof(line), L(T_SCAN_TIME), static_cast<unsigned long>(elapsed / 1000),
                 static_cast<unsigned long>(SCAN_MS / 1000));
   setLine(1, line);
   setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  std::snprintf(line, sizeof(line), "matches %u", static_cast<unsigned>(m_scanHits.load()));
+  std::snprintf(line, sizeof(line), L(T_SCAN_MATCHES), static_cast<unsigned>(m_scanHits.load()));
   setLine(2, line);
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  setLine(3, "pairing mode");
+  setLine(3, L(T_PAIRING_MODE));
   setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-  setLine(4, "keep awake");
+  setLine(4, L(T_KEEP_AWAKE));
   setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-  setLine(5, "Cancel");
+  setLine(5, L(T_CANCEL));
   setLineStyle(5, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  lv_label_set_text(m_footer, "tap cancel");
+  lv_label_set_text(m_footer, L(T_TAP_CANCEL));
 }
 
 void UI::renderCameraList() {
-  setTitleBar(m_listFromScan ? "< scan results" : "< cameras", true);
+  setTitleBar(m_listFromScan ? L(T_TITLE_SCAN_RESULTS) : L(T_TITLE_CAMERAS), true);
   clearLineStyles(false);
   layoutRows(54, 34, 30);
   const size_t count = CameraList::size();
   if (count == 0) {
-    setLine(0, "no cameras found");
+    setLine(0, L(T_NO_CAMERAS));
     setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
-    setLine(1, m_listFromScan ? "try scan again" : "use Scan first");
+    setLine(1, m_listFromScan ? L(T_TRY_SCAN_AGAIN) : L(T_USE_SCAN_FIRST));
     setLineStyle(1, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
   } else {
     const size_t start = (m_listCursor / CAMERA_PAGE_LINES) * CAMERA_PAGE_LINES;
@@ -476,59 +597,59 @@ void UI::renderCameraList() {
 }
 
 void UI::renderConnecting() {
-  setTitleBar("< connecting", true);
+  setTitleBar(L(T_TITLE_CONNECTING), true);
   clearLineStyles();
   auto &control = Control::getInstance();
   Camera *camera = control.getConnectingCamera();
   char line[96];
 
-  setLine(0, m_selectedCamera ? m_selectedCamera->getName().c_str() : "camera");
+  setLine(0, m_selectedCamera ? m_selectedCamera->getName().c_str() : L(T_CAM_DEFAULT));
   setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
-  std::snprintf(line, sizeof(line), "state %s", controlStateName(control.getState()));
+  std::snprintf(line, sizeof(line), L(T_STATE_FMT), controlStateName(control.getState()));
   setLine(1, line);
   setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   if (camera != nullptr) {
-    std::snprintf(line, sizeof(line), "progress %u%%", camera->getConnectProgress());
+    std::snprintf(line, sizeof(line), L(T_PROGRESS_FMT), camera->getConnectProgress());
   } else {
-    std::snprintf(line, sizeof(line), "progress wait");
+    std::snprintf(line, sizeof(line), L(T_PROGRESS_WAIT));
   }
   setLine(2, line);
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  setLine(3, "may take 30 sec");
+  setLine(3, L(T_MAY_TAKE_30S));
   setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-  setLine(4, "keep camera awake");
+  setLine(4, L(T_KEEP_CAM_AWAKE));
   setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-  setLine(5, "Cancel");
+  setLine(5, L(T_CANCEL));
   setLineStyle(5, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  lv_label_set_text(m_footer, "tap cancel");
+  lv_label_set_text(m_footer, L(T_TAP_CANCEL));
 }
 
 void UI::renderRemote() {
-  setTitleBar("< remote", true);
+  setTitleBar(L(T_TITLE_REMOTE), true);
   clearLineStyles(false);
   layoutRows(48, 22, 20);
   auto &control = Control::getInstance();
   char line[96];
 
-  std::snprintf(line, sizeof(line), "%s  %u target", controlStateName(control.getState()),
+  std::snprintf(line, sizeof(line), L(T_TARGETS_FMT), controlStateName(control.getState()),
                 static_cast<unsigned>(control.getTargets().size()));
   setLine(0, line);
   setLineStyle(0, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   m_lineTouchable[0] = false;
   layoutGrid(1, 4, 14, 78, 82, 38, 8, 14);
-  setLine(1, "Shutter");
+  setLine(1, L(T_SHUTTER));
   setLineStyle(1, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
   setLine(2, remotePowerLabel());
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  setLine(3, "Back");
+  setLine(3, L(T_BACK));
   setLineStyle(3, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  setLine(4, "Disconnect");
+  setLine(4, L(T_HOME_DISCONNECT));
   setLineStyle(4, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  lv_label_set_text(m_footer, "buttons still work");
+  lv_label_set_text(m_footer, L(T_BUTTONS_WORK));
 }
 
 void UI::renderGPS() {
-  setTitleBar("< gps", true);
+  setTitleBar(L(T_TITLE_GPS), true);
   clearLineStyles(false);
   layoutRows(46, 25, 23);
 
@@ -538,93 +659,93 @@ void UI::renderGPS() {
   char age[16];
   const uint32_t now = Platform::getInstance().tick();
 
-  std::snprintf(line, sizeof(line), "GPS  %s", snapshot.enabled ? "ON" : "OFF");
+  std::snprintf(line, sizeof(line), L(T_GPS_ON_OFF), snapshot.enabled ? L(T_ON) : L(T_OFF));
   setLine(0, line);
   setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
 
   if (!snapshot.enabled) {
-    setLine(1, "Tap to turn on");
+    setLine(1, L(T_TAP_TO_TURN_ON));
     setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
     setLine(2, "ATGM336H-5N");
     setLineStyle(2, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(3, "RX IO44  9600");
+    setLine(3, L(T_GPS_RX_INFO));
     setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(4, "TX not required");
+    setLine(4, L(T_GPS_TX_INFO));
     setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    lv_label_set_text(m_footer, "tap < back");
+    lv_label_set_text(m_footer, L(T_TAP_BACK));
     m_lastGpsRenderMs = now;
     return;
   }
 
   if (!snapshot.hasFix) {
     formatAge(age, sizeof(age), now, snapshot.lastSentenceMs);
-    setLine(1, snapshot.lastSentenceMs == 0 ? "waiting NMEA" : "searching fix");
+    setLine(1, snapshot.lastSentenceMs == 0 ? L(T_WAITING_NMEA) : L(T_SEARCHING_FIX));
     setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-    std::snprintf(line, sizeof(line), "NMEA age %s", age);
+    std::snprintf(line, sizeof(line), L(T_NMEA_AGE), age);
     setLine(2, line);
     setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-    std::snprintf(line, sizeof(line), "sat %u  fix %u", snapshot.satellites, snapshot.fixQuality);
+    std::snprintf(line, sizeof(line), L(T_SAT_FIX), snapshot.satellites, snapshot.fixQuality);
     setLine(3, line);
     setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(4, snapshot.antenna[0] ? snapshot.antenna : "keep antenna open");
+    setLine(4, snapshot.antenna[0] ? snapshot.antenna : L(T_KEEP_ANTENNA_OPEN));
     setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(5, "outdoors helps");
+    setLine(5, L(T_OUTDOORS_HELPS));
     setLineStyle(5, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    lv_label_set_text(m_footer, "tap < back");
+    lv_label_set_text(m_footer, L(T_TAP_BACK));
     m_lastGpsRenderMs = now;
     return;
   }
 
   formatAge(age, sizeof(age), now, snapshot.lastFixMs);
-  std::snprintf(line, sizeof(line), "age %s  sat %u", age, snapshot.satellites);
+  std::snprintf(line, sizeof(line), L(T_AGE_SAT), age, snapshot.satellites);
   setLine(1, line);
   setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  std::snprintf(line, sizeof(line), "lat %.6f", snapshot.latitude);
+  std::snprintf(line, sizeof(line), L(T_LAT), snapshot.latitude);
   setLine(2, line);
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  std::snprintf(line, sizeof(line), "lon %.6f", snapshot.longitude);
+  std::snprintf(line, sizeof(line), L(T_LON), snapshot.longitude);
   setLine(3, line);
   setLineStyle(3, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  std::snprintf(line, sizeof(line), "alt %.1fm", snapshot.altitude);
+  std::snprintf(line, sizeof(line), L(T_ALT), snapshot.altitude);
   setLine(4, line);
   setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
   if (snapshot.validDate && snapshot.validTime) {
     std::snprintf(line, sizeof(line), "%02u-%02u-%02u %02u:%02u:%02u", snapshot.year % 100,
                   snapshot.month, snapshot.day, snapshot.hour, snapshot.minute, snapshot.second);
   } else {
-    std::snprintf(line, sizeof(line), "UTC --");
+    std::snprintf(line, sizeof(line), L(T_UTC_UNKNOWN));
   }
   setLine(5, line);
   setLineStyle(5, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-  lv_label_set_text(m_footer, "tap < back");
+  lv_label_set_text(m_footer, L(T_TAP_BACK));
   m_lastGpsRenderMs = now;
 }
 
 void UI::renderMessage() {
-  setTitleBar("SyncGeo", true);
+  setTitleBar(L(T_SYNCGEO), true);
   clearLineStyles();
   setLine(1, m_message);
   setLineStyle(1, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
-  lv_label_set_text(m_footer, "wait...");
+  lv_label_set_text(m_footer, L(T_WAIT));
 }
 
 void UI::renderConfirm() {
-  setTitleBar("< confirm", true);
+  setTitleBar(L(T_TITLE_CONFIRM), true);
   clearLineStyles(false);
   layoutRows(58, 42, 36);
 
-  setLine(0, m_confirmPrompt.empty() ? "confirm?" : m_confirmPrompt);
+  setLine(0, m_confirmPrompt.empty() ? L(T_CONFIRM_PROMPT) : m_confirmPrompt);
   setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
-  setLine(1, "Yes");
+  setLine(1, L(T_YES));
   setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  setLine(2, "No");
+  setLine(2, L(T_NO));
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   lv_label_set_text(m_footer, "");
 }
 
 std::string UI::cameraLabel(size_t index) const {
   Camera *camera = CameraList::get(index);
-  if (camera == nullptr) return "Camera";
+  if (camera == nullptr) return L(T_CAM_DEFAULT);
   std::string label = cameraTypeName(camera->getType());
   label += " ";
   if (!camera->getName().empty()) {
@@ -641,35 +762,35 @@ const char *UI::remotePowerLabel() const {
   Camera *camera = m_selectedCamera;
   const auto &targets = Control::getInstance().getTargets();
   if (camera == nullptr && !targets.empty()) camera = targets.front()->getCamera();
-  if (camera == nullptr) return "Focus --";
+  if (camera == nullptr) return L(T_FOCUS_UNKNOWN);
 
   switch (camera->getType()) {
     case Camera::Type::RICOH:
-      return "2s Shot";
+      return L(T_2S_SHOT);
     case Camera::Type::CANON_EOS_SMART:
     case Camera::Type::NIKON:
-      return "Focus --";
+      return L(T_FOCUS_UNKNOWN);
     default:
-      return "Focus";
+      return L(T_FOCUS);
   }
 }
 
 const char *UI::controlStateName(Control::state_t state) const {
   switch (state) {
     case Control::STATE_IDLE:
-      return "idle";
+      return L(T_STATE_IDLE);
     case Control::STATE_CONNECT:
-      return "connect";
+      return L(T_STATE_CONNECT);
     case Control::STATE_CONNECTING:
-      return "connecting";
+      return L(T_STATE_CONNECTING);
     case Control::STATE_CONNECT_FAILED:
-      return "failed";
+      return L(T_STATE_FAILED);
     case Control::STATE_ACTIVE:
-      return "active";
+      return L(T_STATE_ACTIVE);
     case Control::STATE_DISCONNECTING:
-      return "disconnect";
+      return L(T_STATE_DISCONNECT);
     default:
-      return "?";
+      return L(T_STATE_UNKNOWN);
   }
 }
 
@@ -731,7 +852,7 @@ void UI::pollPower() {
 
     if (m_batteryPercent >= 0 && m_batteryPercent <= CRITICAL_BATTERY_PERCENT) {
       char reason[64];
-      std::snprintf(reason, sizeof(reason), "Critical battery %d%%", m_batteryPercent);
+      std::snprintf(reason, sizeof(reason), L(T_CRITICAL_BATTERY), m_batteryPercent);
       prepareSleep(reason);
       return;
     }
@@ -740,7 +861,7 @@ void UI::pollPower() {
       m_lowBatteryWarned = true;
       if (m_state != State::MESSAGE) {
         char warning[64];
-        std::snprintf(warning, sizeof(warning), "Low battery %d%%", m_batteryPercent);
+        std::snprintf(warning, sizeof(warning), L(T_LOW_BATTERY), m_batteryPercent);
         showMessage(warning, m_state);
         rendered = true;
       }
@@ -754,12 +875,12 @@ void UI::pollPower() {
 
   if (m_state != State::SCANNING && m_state != State::CONNECTING && m_lastActivityMs != 0 &&
       now - m_lastActivityMs >= INACTIVITY_SLEEP_MS) {
-    prepareSleep("Idle timeout");
+    prepareSleep(L(T_IDLE_TIMEOUT));
   }
 }
 
 void UI::startScan() {
-  disconnectAndHome("Preparing scan");
+  disconnectAndHome(L(T_PREPARING_SCAN));
   CameraList::clear();
   auto &scan = Scan::getInstance();
   scan.clear();
@@ -784,7 +905,7 @@ void UI::goHome() {
 }
 
 void UI::showSavedList() {
-  disconnectAndHome("Loading saved");
+  disconnectAndHome(L(T_LOADING_SAVED));
   CameraList::load();
   m_listFromScan = false;
   m_listCursor = 0;
@@ -794,7 +915,7 @@ void UI::showSavedList() {
 
 void UI::connectSelectedCamera() {
   if (CameraList::size() == 0 || m_listCursor >= CameraList::size()) {
-    showMessage("No camera selected");
+    showMessage(L(T_NO_CAM_SELECTED));
     return;
   }
 
@@ -843,7 +964,7 @@ void UI::pollConnection() {
 
   if (state == Control::STATE_CONNECT_FAILED) {
     m_pendingSave = false;
-    showMessage("Connect failed", State::CAMERA_LIST);
+    showMessage(L(T_CONNECT_FAILED), State::CAMERA_LIST);
     return;
   }
 
@@ -860,7 +981,7 @@ void UI::pollGPS() {
 void UI::sendPulse(Control::cmd_t press, Control::cmd_t release) {
   auto &control = Control::getInstance();
   if (control.getState() != Control::STATE_ACTIVE) {
-    showMessage("Not connected", State::HOME);
+    showMessage(L(T_NOT_CONNECTED), State::HOME);
     return;
   }
   control.sendCommand(press);
@@ -897,14 +1018,14 @@ void UI::activateHomeAction(size_t index, bool cameraConnected) {
         m_state = State::REMOTE;
         render();
       } else {
-        showMessage("No active camera");
+        showMessage(L(T_NO_ACTIVE_CAM));
       }
       break;
     case HomeAction::DISCONNECT:
-      showConfirm("disconnect?", ConfirmAction::DISCONNECT, State::HOME);
+      showConfirm(L(T_DISCONNECT_Q), ConfirmAction::DISCONNECT, State::HOME);
       break;
     case HomeAction::SLEEP:
-      showConfirm("sleep?", ConfirmAction::SLEEP, State::HOME);
+      showConfirm(L(T_SLEEP_Q), ConfirmAction::SLEEP, State::HOME);
       break;
     default:
       break;
@@ -912,7 +1033,7 @@ void UI::activateHomeAction(size_t index, bool cameraConnected) {
 }
 
 void UI::showConfirm(const char *prompt, ConfirmAction action, State backState) {
-  m_confirmPrompt = prompt ? prompt : "confirm?";
+  m_confirmPrompt = prompt ? prompt : L(T_CONFIRM_PROMPT);
   m_confirmAction = action;
   m_beforeConfirm = backState;
   m_state = State::CONFIRM;
@@ -926,11 +1047,11 @@ void UI::runConfirmAction() {
 
   switch (action) {
     case ConfirmAction::DISCONNECT:
-      disconnectAndHome("Disconnected");
-      showMessage("Disconnected");
+      disconnectAndHome(L(T_DISCONNECTED));
+      showMessage(L(T_DISCONNECTED));
       break;
     case ConfirmAction::SLEEP:
-      prepareSleep("Confirmed sleep");
+      prepareSleep(L(T_CONFIRMED_SLEEP));
       break;
     case ConfirmAction::NONE:
     default:
@@ -952,7 +1073,7 @@ void UI::showMessage(const std::string &message, State next) {
 
 void UI::handleHomeButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
   if (pwrLong) {
-    prepareSleep("Manual sleep");
+    prepareSleep(L(T_MANUAL_SLEEP));
     return;
   }
   const bool cameraConnected = homeCameraConnected();
@@ -974,7 +1095,7 @@ void UI::handleHomeButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
 
 void UI::handleScanningButton(bool recBack, bool pwrLong) {
   if (pwrLong) {
-    prepareSleep("Manual sleep");
+    prepareSleep(L(T_MANUAL_SLEEP));
     return;
   }
   if (recBack) {
@@ -986,7 +1107,7 @@ void UI::handleScanningButton(bool recBack, bool pwrLong) {
 
 void UI::handleListButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
   if (pwrLong) {
-    prepareSleep("Manual sleep");
+    prepareSleep(L(T_MANUAL_SLEEP));
     return;
   }
   if (recBack) {
@@ -1005,7 +1126,7 @@ void UI::handleListButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
 
 void UI::handleConnectingButton(bool recBack, bool pwrLong) {
   if (pwrLong) {
-    prepareSleep("Manual sleep");
+    prepareSleep(L(T_MANUAL_SLEEP));
     return;
   }
   if (recBack && Control::getInstance().getState() == Control::STATE_CONNECT_FAILED) {
@@ -1016,11 +1137,11 @@ void UI::handleConnectingButton(bool recBack, bool pwrLong) {
 
 void UI::handleRemoteButton(bool rec, bool pwr, bool recBack, bool pwrDouble, bool pwrLong) {
   if (pwrLong) {
-    prepareSleep("Manual sleep");
+    prepareSleep(L(T_MANUAL_SLEEP));
     return;
   }
   if (pwrDouble) {
-    showConfirm("disconnect?", ConfirmAction::DISCONNECT, State::REMOTE);
+    showConfirm(L(T_DISCONNECT_Q), ConfirmAction::DISCONNECT, State::REMOTE);
     return;
   }
   if (recBack) {
@@ -1041,7 +1162,7 @@ void UI::handleRemoteButton(bool rec, bool pwr, bool recBack, bool pwrDouble, bo
 
 void UI::handleGPSButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
   if (pwrLong) {
-    prepareSleep("Manual sleep");
+    prepareSleep(L(T_MANUAL_SLEEP));
     return;
   }
   if (recBack) {
@@ -1053,7 +1174,7 @@ void UI::handleGPSButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
     GPS &gps = GPS::getInstance();
     const bool next = !gps.isEnabled();
     gps.setEnabled(next);
-    showMessage(next ? "GPS enabled" : "GPS disabled", State::GPS);
+    showMessage(next ? L(T_GPS_ENABLED) : L(T_GPS_DISABLED), State::GPS);
     return;
   }
   if (pwr) render();
@@ -1061,7 +1182,7 @@ void UI::handleGPSButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
 
 void UI::handleConfirmButton(bool rec, bool pwr, bool recBack, bool pwrLong) {
   if (pwrLong) {
-    prepareSleep("Manual sleep");
+    prepareSleep(L(T_MANUAL_SLEEP));
     return;
   }
   if (rec) {
@@ -1136,8 +1257,8 @@ void UI::handleRemoteTouch(const WaveshareEPaper154::TouchEvent &event) {
       render();
       break;
     case 2:
-      if (std::strcmp(remotePowerLabel(), "Focus --") == 0) {
-        showMessage("No focus action", State::REMOTE);
+      if (std::strcmp(remotePowerLabel(), L(T_FOCUS_UNKNOWN)) == 0) {
+        showMessage(L(T_NO_FOCUS_ACTION), State::REMOTE);
       } else {
         sendPulse(Control::CMD_FOCUS_PRESS, Control::CMD_FOCUS_RELEASE);
         render();
@@ -1148,7 +1269,7 @@ void UI::handleRemoteTouch(const WaveshareEPaper154::TouchEvent &event) {
       render();
       break;
     case 4:
-      showConfirm("disconnect?", ConfirmAction::DISCONNECT, State::REMOTE);
+      showConfirm(L(T_DISCONNECT_Q), ConfirmAction::DISCONNECT, State::REMOTE);
       break;
     default:
       break;
@@ -1168,7 +1289,7 @@ void UI::handleGPSTouch(const WaveshareEPaper154::TouchEvent &event) {
   if (line == 0 || (!enabled && line == 1)) {
     const bool next = !enabled;
     gps.setEnabled(next);
-    showMessage(next ? "GPS enabled" : "GPS disabled", State::GPS);
+    showMessage(next ? L(T_GPS_ENABLED) : L(T_GPS_DISABLED), State::GPS);
   }
 }
 

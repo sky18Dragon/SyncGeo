@@ -5,6 +5,7 @@ set(furble_sources
     FurbleSettings.cpp
     FurbleSpinValue.cpp
     FurbleUI.cpp
+    FurbleUIFontZh14.c
     WaveshareEPaper154.cpp
     main.cpp)
 
