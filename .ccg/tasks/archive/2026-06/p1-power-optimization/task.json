@@ -1,0 +1,12 @@
+﻿{
+    "domain":  "firmware",
+    "branch":  "main",
+    "id":  "p1-power-optimization",
+    "risk":  "medium",
+    "createdAt":  "2026-06-19T02:07:46Z",
+    "complexity":  "M",
+    "currentPhase":  "completed",
+    "status":  "completed",
+    "nextAction":  "Archive task",
+    "title":  "Implement P1 power optimization tasks for ESP32-S3 firmware"
+}
