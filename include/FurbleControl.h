@@ -1,6 +1,7 @@
 #ifndef FURBLE_CONTROL_H
 #define FURBLE_CONTROL_H
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -32,6 +33,12 @@ class Control {
     STATE_CONNECT_FAILED,
     /** All connections active. */
     STATE_ACTIVE,
+    /** Connected, no user activity — low-power idle (D3). */
+    STATE_CONNECTED_IDLE,
+    /** GPS sampling in progress — module powered, seeking fix. */
+    STATE_GPS_SAMPLE,
+    /** GPS fix acquired, writing to camera targets. */
+    STATE_CAMERA_GPS_WRITE,
     /** Disconnecting. */
     STATE_DISCONNECTING,
   } state_t;
@@ -58,6 +65,8 @@ class Control {
 
     QueueHandle_t m_Queue = NULL;
     Furble::Camera *m_Camera = NULL;
+    // D8: GPS payload protected by mutex to prevent torn reads
+    mutable std::mutex m_GpsMutex;
     Camera::gps_t m_GPS;
     Camera::timesync_t m_Timesync;
   };
@@ -123,14 +132,29 @@ class Control {
   /** Retrieve current control state. */
   state_t getState(void) const;
 
+  /** Get the last user activity timestamp for idle detection. */
+  uint32_t getLastActivityMs(void) const;
+
+  /** Notify the control that user activity occurred (resets idle timer). */
+  void notifyActivity(void);
+
   /** Set transmit power. */
   void setPower(esp_power_level_t power);
+
+  /** Get backoff wait time in ms based on failcount tier (D3). */
+  static uint32_t getBackoffMs(uint32_t failcount);
+
+  // Power optimization: track active BLE profile to skip redundant updates
+  enum class ActiveProfile { NONE, GPS, CONTROL };
 
  private:
   Control() {};
 
   /** Iterate over cameras and attempt connection. */
   state_t connectAll(void);
+
+  /** Apply BLE connection profile to all targets, skipping redundant updates. */
+  void applyProfile(ActiveProfile profile);
 
   static constexpr UBaseType_t m_QueueLength = 32;
 
@@ -139,11 +163,22 @@ class Control {
   std::vector<std::unique_ptr<Control::Target>> m_Targets;
 
   bool m_InfiniteReconnect = false;
-  state_t m_State = STATE_IDLE;
+  std::atomic<state_t> m_State = STATE_IDLE;
 
   // Camera connects are serialised, the following tracks the last attempt
   Camera *m_ConnectCamera = nullptr;
   esp_power_level_t m_Power = ESP_PWR_LVL_P3;
+
+  // Power optimization: backoff and state tracking (D3)
+  uint32_t m_BackoffFailCount = 0;
+  uint32_t m_LastActivityMs = 0;
+  uint32_t m_GpsLastSampleMs = 0;
+  uint32_t m_StateEnteredMs = 0;
+  uint32_t m_BackoffUntilMs = 0;
+  uint32_t m_ColdStartStreak = 0;
+
+  // Track applied BLE profile to skip redundant requestConnectionUpdate calls
+  ActiveProfile m_ActiveProfile = ActiveProfile::NONE;
 };
 
 };  // namespace Furble

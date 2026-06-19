@@ -54,6 +54,11 @@ void GPS::ensureStarted() {
     ESP_LOGI(TAG, "ATGM336H UART ready: uart=%d tx=GPIO%d rx=GPIO%d baud=%lu", UART_PORT,
              UART_TX_PIN, UART_RX_PIN,
              static_cast<unsigned long>(Settings::load<uint32_t>(Settings::GPS_BAUD)));
+    if (GPS_PWR_PIN >= 0) {
+      ESP_LOGI(TAG, "GPS hardware gating: enabled (pin=%d)", GPS_PWR_PIN);
+    } else {
+      ESP_LOGI(TAG, "GPS hardware gating: disabled (pin=-1)");
+    }
   }
 
   if (m_task == nullptr) {
@@ -78,26 +83,26 @@ void GPS::setEnabled(bool enabled) {
 void GPS::reloadSetting() { applyEnabled(Settings::load<bool>(Settings::GPS)); }
 
 void GPS::applyEnabled(bool enabled) {
+  bool wasEnabled = false;
   {
     std::lock_guard<std::mutex> lock(m_mutex);
+    wasEnabled = m_enabled;
     m_enabled = enabled;
     m_data.enabled = enabled;
     if (!enabled) m_data.hasFix = false;
   }
 
-  if (enabled) {
+  // Acquire/release GPS_UART_ACTIVE lock only on actual state transitions
+  if (enabled && !wasEnabled) {
     const uint32_t baud = Settings::load<uint32_t>(Settings::GPS_BAUD);
     uart_set_baudrate(UART_PORT, baud);
     uart_flush(UART_PORT);
     resetParser();
-    if (GPS_PWR_PIN >= 0) gpio_set_level(GPS_PWR_PIN, 1);
-    Platform::getInstance().setSleep(false);
+    Platform::getInstance().acquire(Platform::PowerLock::GPS_UART_ACTIVE);
     ESP_LOGI(TAG, "GPS enabled at %lu baud", static_cast<unsigned long>(baud));
-  } else {
-    uart_flush(UART_PORT);
-    resetParser();
-    if (GPS_PWR_PIN >= 0) gpio_set_level(GPS_PWR_PIN, 0);
-    Platform::getInstance().setSleep(true);
+  } else if (!enabled && wasEnabled) {
+    gpsPowerOff();
+    Platform::getInstance().release(Platform::PowerLock::GPS_UART_ACTIVE);
     ESP_LOGI(TAG, "GPS disabled");
   }
 }
@@ -112,6 +117,38 @@ void GPS::resetParser() {
   std::memset(m_sentence, 0, sizeof(m_sentence));
 }
 
+void GPS::gpsPowerOn() {
+  if (GPS_PWR_PIN < 0) {
+    static bool loggedDisabled = false;
+    if (!loggedDisabled) {
+      ESP_LOGI(TAG, "GPS power on skipped: gating disabled");
+      loggedDisabled = true;
+    }
+    // Even without hardware gating, reset parser to discard stale NMEA
+    uart_flush(UART_PORT);
+    resetParser();
+    m_gpsPowered.store(true, std::memory_order_release);
+    return;
+  }
+
+  gpio_set_level(GPS_PWR_PIN, 1);
+  m_gpsPowered.store(true, std::memory_order_release);
+  ESP_LOGI(TAG, "GPS power on");
+  vTaskDelay(pdMS_TO_TICKS(GPS_WARMUP_MS));
+  uart_flush(UART_PORT);
+  resetParser();
+}
+
+void GPS::gpsPowerOff() {
+  if (GPS_PWR_PIN >= 0) {
+    gpio_set_level(GPS_PWR_PIN, 0);
+  }
+  m_gpsPowered.store(false, std::memory_order_release);
+  uart_flush(UART_PORT);
+  resetParser();
+  ESP_LOGI(TAG, "GPS power off");
+}
+
 void GPS::task() {
   ESP_LOGI(TAG, "Starting ATGM336H GPS task");
   while (true) {
@@ -122,8 +159,25 @@ void GPS::task() {
     }
 
     if (!enabled) {
+      if (m_gpsPowered.load(std::memory_order_acquire)) gpsPowerOff();
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
+    }
+
+    // Hardware power gating: only power the module when Control requests sampling.
+    // Data pipeline (serviceSerial) ALWAYS runs when GPS is enabled — the UI and
+    // publishIfReady() need live NMEA regardless of control state machine state.
+    const bool sampling = Control::getInstance().getState() == Control::STATE_GPS_SAMPLE;
+    const bool poweredOn = m_gpsPowered.load(std::memory_order_acquire);
+
+    if (sampling && !poweredOn) {
+      gpsPowerOn();
+      // Re-check state after warmup — Control may have left GPS_SAMPLE during delay
+      if (Control::getInstance().getState() != Control::STATE_GPS_SAMPLE) {
+        gpsPowerOff();
+      }
+    } else if (!sampling && poweredOn) {
+      gpsPowerOff();
     }
 
     serviceSerial();
@@ -207,6 +261,7 @@ void GPS::parseSentence(const char *sentence) {
 void GPS::parseGGA(char *fields[], size_t count) {
   if (count < 10) return;
 
+  const uint32_t now = Platform::getInstance().tick();
   Snapshot data;
   {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -223,13 +278,25 @@ void GPS::parseGGA(char *fields[], size_t count) {
     data.latitude = latitude;
     data.longitude = longitude;
     data.validLocation = true;
+    data.lastLocationMs = now;
   }
 
   data.fixQuality = static_cast<uint8_t>(std::min<unsigned int>(parseUnsigned(fields[6]), 255U));
   data.satellites = parseUnsigned(fields[7]);
+
+  // HDOP from field[8] — power optimization: quality gate for smart publish
+  {
+    const double hdop = parseDouble(fields[8], -1.0);
+    if (hdop >= 0.0 && std::isfinite(hdop)) {
+      data.hdop = static_cast<float>(hdop);
+      data.validHdop = true;
+      data.lastHdopMs = now;
+    }
+  }
+
   data.altitude = parseDouble(fields[9], data.altitude);
   data.hasFix = data.enabled && data.fixQuality > 0 && data.validLocation;
-  if (data.hasFix) data.lastFixMs = Platform::getInstance().tick();
+  if (data.hasFix) data.lastFixMs = now;
 
   std::lock_guard<std::mutex> lock(m_mutex);
   m_data = data;
@@ -238,6 +305,7 @@ void GPS::parseGGA(char *fields[], size_t count) {
 void GPS::parseRMC(char *fields[], size_t count) {
   if (count < 10) return;
 
+  const uint32_t now = Platform::getInstance().tick();
   Snapshot data;
   {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -255,12 +323,23 @@ void GPS::parseRMC(char *fields[], size_t count) {
     data.latitude = latitude;
     data.longitude = longitude;
     data.validLocation = true;
+    data.lastLocationMs = now;
+  }
+
+  // Speed over ground from field[7] — knots to m/s conversion
+  {
+    const double knots = parseDouble(fields[7], -1.0);
+    if (knots >= 0.0 && std::isfinite(knots)) {
+      data.speedMps = static_cast<float>(knots * 0.514444);
+      data.validSpeed = true;
+      data.lastSpeedMs = now;
+    }
   }
 
   parseDateDMY(fields[9], data);
   data.hasFix = data.enabled && active && data.validLocation;
   if (data.fixQuality > 0) data.hasFix = data.hasFix && data.fixQuality > 0;
-  if (data.hasFix) data.lastFixMs = Platform::getInstance().tick();
+  if (data.hasFix) data.lastFixMs = now;
 
   std::lock_guard<std::mutex> lock(m_mutex);
   m_data = data;
@@ -269,6 +348,7 @@ void GPS::parseRMC(char *fields[], size_t count) {
 void GPS::parseZDA(char *fields[], size_t count) {
   if (count < 5) return;
 
+  const uint32_t now = Platform::getInstance().tick();
   Snapshot data;
   {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -277,6 +357,9 @@ void GPS::parseZDA(char *fields[], size_t count) {
 
   parseTime(fields[1], data);
   parseDateYMD(fields[2], fields[3], fields[4], data);
+  if (data.validDate && data.validTime) {
+    data.lastTimeMs = now;
+  }
 
   std::lock_guard<std::mutex> lock(m_mutex);
   m_data = data;
@@ -295,8 +378,21 @@ void GPS::publishIfReady(uint32_t now) {
     data = m_data;
   }
 
+  // Basic prerequisites
   if (!data.enabled || !data.hasFix || !data.validLocation || !data.validDate || !data.validTime) return;
+
+  // Rate limit: publish at most once per PUBLISH_MS (60s)
   if (m_lastPublishMs != 0 && now - m_lastPublishMs < PUBLISH_MS) return;
+
+  // D9: Freshness check — all fields must be from current powered sampling window
+  if (data.lastLocationMs == 0 || data.lastTimeMs == 0) return;
+  // Location and time must both be within GPS_FIX_WINDOW_MS of now
+  if (now - data.lastLocationMs > GPS_FIX_WINDOW_MS) return;
+  if (now - data.lastTimeMs > GPS_FIX_WINDOW_MS) return;
+
+  // Smart publish gating: only publish if position changed meaningfully
+  if (!shouldPublishGps(data)) return;
+
   m_lastPublishMs = now;
 
   const Camera::gps_t gps = {
@@ -308,6 +404,16 @@ void GPS::publishIfReady(uint32_t now) {
   const Camera::timesync_t timesync = {
       data.year, data.month, data.day, data.hour, data.minute, data.second, data.centisecond,
   };
+
+  // D8: Track last sent position for movement-based gating
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_lastSentLatitude = data.latitude;
+    m_lastSentLongitude = data.longitude;
+    m_lastSentMs = now;
+    m_lastSentValid = true;
+  }
+
   Control::getInstance().updateGPS(gps, timesync);
 }
 
@@ -440,6 +546,50 @@ double GPS::parseDouble(const char *text, double fallback) {
   const double value = std::strtod(text, &end);
   if (errno != 0 || end == text || !std::isfinite(value)) return fallback;
   return value;
+}
+
+// Haversine great-circle distance in meters.
+// Symmetric: haversine(a,b) == haversine(b,a); zero at same point.
+double GPS::haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+  if (!std::isfinite(lat1) || !std::isfinite(lon1) || !std::isfinite(lat2) || !std::isfinite(lon2)) {
+    return 0.0;
+  }
+
+  constexpr double DEG_TO_RAD = M_PI / 180.0;
+  constexpr double EARTH_RADIUS_M = 6371000.0;
+
+  const double dLat = (lat2 - lat1) * DEG_TO_RAD;
+  const double dLon = (lon2 - lon1) * DEG_TO_RAD;
+  const double rLat1 = lat1 * DEG_TO_RAD;
+  const double rLat2 = lat2 * DEG_TO_RAD;
+
+  const double a = std::sin(dLat / 2.0) * std::sin(dLat / 2.0)
+                   + std::cos(rLat1) * std::cos(rLat2) * std::sin(dLon / 2.0) * std::sin(dLon / 2.0);
+  // Clamp to [0,1] to prevent NaN from floating-point rounding
+  const double c = 2.0 * std::atan2(std::sqrt(std::clamp(a, 0.0, 1.0)), std::sqrt(1.0 - std::clamp(a, 0.0, 1.0)));
+
+  return EARTH_RADIUS_M * c;
+}
+
+bool GPS::shouldPublishGps(const Snapshot &data) const {
+  // Quality gate: require good HDOP and enough satellites (ALWAYS checked, even first publish)
+  if (data.validHdop && data.hdop > 3.0) return false;
+  if (data.satellites < 4) return false;
+
+  // Always publish if we haven't sent a position yet and quality is acceptable.
+  if (!m_lastSentValid) return true;
+
+  const double distance = haversineMeters(
+      m_lastSentLatitude, m_lastSentLongitude,
+      data.latitude, data.longitude);
+
+  // Strong movement: always publish
+  if (distance >= GPS_MOVE_STRONG_THRESHOLD_M) return true;
+
+  // Moderate movement: publish only if moving and good signal
+  if (distance >= GPS_MOVE_THRESHOLD_M && data.validSpeed && data.speedMps > 0.5 && data.satellites >= 5) return true;
+
+  return false;
 }
 
 }  // namespace Furble

@@ -12,6 +12,7 @@
 #include <NimBLERemoteService.h>
 #include <NimBLEUtils.h>
 
+#include "FurblePlatform.h"
 #include "Ricoh.h"
 
 namespace Furble {
@@ -377,11 +378,80 @@ void Ricoh::updateGeoData(const gps_t &gps, const timesync_t &timesync) {
              timesync.hour, timesync.minute, timesync.second, timesync.centisecond);
     return;
   }
-  ESP_LOGD(LOG_TAG,
-           "Ricoh GPS valid (stub): lat=%.7f lon=%.7f alt=%.1f "
-           "utc=%04u-%02u-%02u %02u:%02u:%02u.%02u",
-           gps.latitude, gps.longitude, gps.altitude, timesync.year, timesync.month, timesync.day,
-           timesync.hour, timesync.minute, timesync.second, timesync.centisecond);
+
+  // D7: Acquire GATT write lock
+  Platform::getInstance().acquire(Platform::PowerLock::GATT_WRITE);
+
+  bool gpsOk = false;
+  bool timeOk = false;
+
+  // Write GPS Info (latitude/longitude/altitude/satellites)
+  if (m_GpsInfo != nullptr && m_GpsInfo->canWrite()) {
+    // Ricoh GPS payload: lat(4B int32 * 1e7) + lon(4B int32 * 1e7) + alt(2B int16 m) + sat(1B)
+    const int32_t latE7 = static_cast<int32_t>(std::round(gps.latitude * 1e7));
+    const int32_t lonE7 = static_cast<int32_t>(std::round(gps.longitude * 1e7));
+    const int16_t altM = static_cast<int16_t>(std::round(gps.altitude));
+    const uint8_t sat = static_cast<uint8_t>(std::min(gps.satellites, 255U));
+
+    std::array<uint8_t, 11> payload = {};
+    payload[0] = static_cast<uint8_t>(latE7 & 0xFF);
+    payload[1] = static_cast<uint8_t>((latE7 >> 8) & 0xFF);
+    payload[2] = static_cast<uint8_t>((latE7 >> 16) & 0xFF);
+    payload[3] = static_cast<uint8_t>((latE7 >> 24) & 0xFF);
+    payload[4] = static_cast<uint8_t>(lonE7 & 0xFF);
+    payload[5] = static_cast<uint8_t>((lonE7 >> 8) & 0xFF);
+    payload[6] = static_cast<uint8_t>((lonE7 >> 16) & 0xFF);
+    payload[7] = static_cast<uint8_t>((lonE7 >> 24) & 0xFF);
+    payload[8] = static_cast<uint8_t>(altM & 0xFF);
+    payload[9] = static_cast<uint8_t>((altM >> 8) & 0xFF);
+    payload[10] = sat;
+
+    gpsOk = m_GpsInfo->writeValue(payload.data(), payload.size(), true);
+    if (gpsOk) {
+      ESP_LOGI(LOG_TAG,
+               "Ricoh GPS write: lat=%.7f lon=%.7f alt=%.1fm sat=%u",
+               gps.latitude, gps.longitude, gps.altitude, gps.satellites);
+    } else {
+      ESP_LOGW(LOG_TAG, "Ricoh GPS write to GpsInfo failed");
+    }
+  } else {
+    ESP_LOGW(LOG_TAG, "Ricoh GpsInfo characteristic unavailable or not writable");
+  }
+
+  // Write Location Control (UTC time)
+  if (m_LocationControl != nullptr && m_LocationControl->canWrite()) {
+    // Ricoh Location Control payload: year(2B LE) + month(1B) + day(1B) + hour(1B) + min(1B) + sec(1B) + cs(1B)
+    std::array<uint8_t, 8> tcPayload = {};
+    tcPayload[0] = static_cast<uint8_t>(timesync.year & 0xFF);
+    tcPayload[1] = static_cast<uint8_t>((timesync.year >> 8) & 0xFF);
+    tcPayload[2] = static_cast<uint8_t>(timesync.month);
+    tcPayload[3] = static_cast<uint8_t>(timesync.day);
+    tcPayload[4] = static_cast<uint8_t>(timesync.hour);
+    tcPayload[5] = static_cast<uint8_t>(timesync.minute);
+    tcPayload[6] = static_cast<uint8_t>(timesync.second);
+    tcPayload[7] = static_cast<uint8_t>(timesync.centisecond);
+
+    timeOk = m_LocationControl->writeValue(tcPayload.data(), tcPayload.size(), true);
+    if (timeOk) {
+      ESP_LOGI(LOG_TAG,
+               "Ricoh UTC write: %04u-%02u-%02u %02u:%02u:%02u.%02u",
+               timesync.year, timesync.month, timesync.day,
+               timesync.hour, timesync.minute, timesync.second, timesync.centisecond);
+    } else {
+      ESP_LOGW(LOG_TAG, "Ricoh UTC write to LocationControl failed");
+    }
+  } else {
+    ESP_LOGW(LOG_TAG, "Ricoh LocationControl characteristic unavailable or not writable");
+  }
+
+  // Release GATT write lock
+  Platform::getInstance().release(Platform::PowerLock::GATT_WRITE);
+
+  if (gpsOk && timeOk) {
+    ESP_LOGI(LOG_TAG, "Ricoh geotagging complete");
+  } else if (!gpsOk && !timeOk) {
+    ESP_LOGW(LOG_TAG, "Ricoh geotagging incomplete: both GPS and time writes failed");
+  }
 }
 
 size_t Ricoh::getSerialisedBytes(void) const {

@@ -143,7 +143,13 @@ const UI_Text T_NO_FOCUS_ACTION = {"No focus action", "无对焦操作"};
 const UI_Text T_WAIT = {"wait...", "请稍候..."};
 
 
-bool homeCameraConnected() { return Furble::Control::getInstance().getState() == Furble::Control::STATE_ACTIVE; }
+bool homeCameraConnected() {
+  const auto state = Furble::Control::getInstance().getState();
+  return state == Furble::Control::STATE_ACTIVE
+      || state == Furble::Control::STATE_CONNECTED_IDLE
+      || state == Furble::Control::STATE_GPS_SAMPLE
+      || state == Furble::Control::STATE_CAMERA_GPS_WRITE;
+}
 
 size_t homeItemCount(bool cameraConnected) { return cameraConnected ? 6 : 4; }
 
@@ -493,6 +499,9 @@ void UI::render(const char *eventText) {
   (void)eventText;
   updateBatteryCache(false);
 
+  // Acquire EPAPER_REFRESH lock for the duration of ePaper operations
+  Platform::getInstance().acquire(Platform::PowerLock::EPAPER_REFRESH);
+
   switch (m_state) {
     case State::HOME:
       renderHome();
@@ -520,9 +529,16 @@ void UI::render(const char *eventText) {
       break;
   }
 
-  Platform::getInstance().displayClear(true);
-  lv_obj_invalidate(lv_screen_active());
+  // Only full clear + invalidate when state changed or content is dirty
+  if (m_renderDirty) {
+    Platform::getInstance().displayClear(true);
+    lv_obj_invalidate(lv_screen_active());
+    m_renderDirty = false;
+  }
   m_lastRenderMs = Platform::getInstance().tick();
+
+  // Release EPAPER_REFRESH lock — flush completes asynchronously via LVGL timer
+  Platform::getInstance().release(Platform::PowerLock::EPAPER_REFRESH);
 }
 
 void UI::renderHome() {
@@ -787,6 +803,12 @@ const char *UI::controlStateName(Control::state_t state) const {
       return L(T_STATE_FAILED);
     case Control::STATE_ACTIVE:
       return L(T_STATE_ACTIVE);
+    case Control::STATE_CONNECTED_IDLE:
+      return "idle";
+    case Control::STATE_GPS_SAMPLE:
+      return "gps";
+    case Control::STATE_CAMERA_GPS_WRITE:
+      return "sync";
     case Control::STATE_DISCONNECTING:
       return L(T_STATE_DISCONNECT);
     default:
@@ -794,7 +816,11 @@ const char *UI::controlStateName(Control::state_t state) const {
   }
 }
 
-void UI::resetActivity() { m_lastActivityMs = Platform::getInstance().tick(); }
+void UI::resetActivity() {
+  m_lastActivityMs = Platform::getInstance().tick();
+  // Also notify the control layer to keep BLE connection profile responsive
+  Control::getInstance().notifyActivity();
+}
 
 void UI::drawSleepLogo() {
   Platform &platform = Platform::getInstance();
@@ -873,8 +899,15 @@ void UI::pollPower() {
     }
   }
 
-  if (m_state != State::SCANNING && m_state != State::CONNECTING && m_lastActivityMs != 0 &&
-      now - m_lastActivityMs >= INACTIVITY_SLEEP_MS) {
+  // Deep sleep is suppressed during: scanning, connecting, GPS sampling, GPS writing, and when
+  // the control layer has a pending backoff/reconnect deadline.
+  const auto ctrlState = Control::getInstance().getState();
+  const bool systemBusy = (m_state == State::SCANNING)
+                       || (m_state == State::CONNECTING)
+                       || (ctrlState == Control::STATE_GPS_SAMPLE)
+                       || (ctrlState == Control::STATE_CAMERA_GPS_WRITE)
+                       || (ctrlState == Control::STATE_CONNECT);
+  if (!systemBusy && m_lastActivityMs != 0 && now - m_lastActivityMs >= INACTIVITY_SLEEP_MS) {
     prepareSleep(L(T_IDLE_TIMEOUT));
   }
 }
@@ -889,7 +922,10 @@ void UI::startScan() {
   m_listFromScan = true;
   m_listCursor = 0;
   m_state = State::SCANNING;
-  scan.start(scanCallback, this);
+  m_renderDirty = true;
+  // D2: Use pairing scan (30s active, reduced duty cycle)
+  scan.startPairingScan(scanCallback, this);
+  Control::getInstance().notifyActivity();
   render();
 }
 
@@ -901,6 +937,7 @@ void UI::stopScan() {
 void UI::goHome() {
   stopScan();
   m_state = State::HOME;
+  m_renderDirty = true;
   render();
 }
 
@@ -910,6 +947,7 @@ void UI::showSavedList() {
   m_listFromScan = false;
   m_listCursor = 0;
   m_state = State::CAMERA_LIST;
+  m_renderDirty = true;
   render();
 }
 
@@ -929,6 +967,7 @@ void UI::connectSelectedCamera() {
   control.addActive(m_selectedCamera);
   control.connectAll(false);
   m_state = State::CONNECTING;
+  m_renderDirty = true;
   render();
 }
 
@@ -1037,6 +1076,7 @@ void UI::showConfirm(const char *prompt, ConfirmAction action, State backState) 
   m_confirmAction = action;
   m_beforeConfirm = backState;
   m_state = State::CONFIRM;
+  m_renderDirty = true;
   render();
 }
 
@@ -1410,7 +1450,8 @@ void UI::task() {
     pollPower();
 
     lv_timer_handler();
-    vTaskDelay(pdMS_TO_TICKS(20));
+    const uint32_t delayMs = (m_state == State::GPS || m_state == State::HOME) ? 50 : 20;
+    vTaskDelay(pdMS_TO_TICKS(delayMs));
   }
 }
 

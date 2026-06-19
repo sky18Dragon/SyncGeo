@@ -1,6 +1,7 @@
 #include <NimBLEAdvertisedDevice.h>
 
 #include "Camera.h"
+#include "FurblePlatform.h"
 
 namespace Furble {
 
@@ -13,13 +14,16 @@ Camera::~Camera() {
 
 void Camera::onConnect(NimBLEClient *pClient) {
   ESP_LOGI(LOG_TAG, "Connected, adjusting transmit power to %d", m_Power);
-  // Set BLE transmit power after connection is established.
   NimBLEDevice::setPower(m_Power);
   m_Connected = true;
+  Platform::getInstance().acquire(Platform::PowerLock::BLE_CONNECTED);
 }
 
 void Camera::onDisconnect(NimBLEClient *pClient, int reason) {
   ESP_LOGI(LOG_TAG, "Disconnected");
+  if (m_Connected) {
+    Platform::getInstance().release(Platform::PowerLock::BLE_CONNECTED);
+  }
   m_Connected = false;
   m_Progress = 0;
 }
@@ -91,6 +95,22 @@ bool Camera::isConnected(void) const {
   }
 
   return m_Connected && m_Client && m_Client->isConnected();
+}
+
+bool Camera::requestConnectionUpdate(const ConnectionProfile &profile) {
+  if (m_Client == nullptr || !m_Client->isConnected()) return false;
+
+  const esp_err_t err = m_Client->updateConnParams(
+      profile.minInterval, profile.maxInterval,
+      profile.latency, profile.timeout);
+  if (err != ESP_OK) {
+    ESP_LOGW(LOG_TAG, "Connection param update failed: %s", esp_err_to_name(err));
+    return false;
+  }
+  ESP_LOGI(LOG_TAG, "Connection params updated: min=%u max=%u lat=%u to=%u",
+           profile.minInterval, profile.maxInterval,
+           profile.latency, profile.timeout);
+  return true;
 }
 
 }  // namespace Furble

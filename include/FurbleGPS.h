@@ -1,6 +1,7 @@
 #ifndef FURBLE_GPS_H
 #define FURBLE_GPS_H
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -39,6 +40,16 @@ class GPS {
     uint32_t sentences = 0;
     uint32_t checksumErrors = 0;
     char antenna[18] = "";
+    // Power optimization: HDOP and speed for smart publish gating
+    float hdop = 99.9f;
+    bool validHdop = false;
+    float speedMps = 0.0f;
+    bool validSpeed = false;
+    // Per-field freshness timestamps (D9: prevent cross-cycle stale data)
+    uint32_t lastLocationMs = 0;
+    uint32_t lastTimeMs = 0;
+    uint32_t lastHdopMs = 0;
+    uint32_t lastSpeedMs = 0;
   };
 
   static GPS &getInstance();
@@ -52,8 +63,24 @@ class GPS {
   bool isEnabled() const;
   void setEnabled(bool enabled);
   void reloadSetting();
+  void gpsPowerOn();
+  void gpsPowerOff();
   Snapshot snapshot() const;
   void task();
+
+  // Power optimization: smart publish helpers
+  static double haversineMeters(double lat1, double lon1, double lat2, double lon2);
+  bool shouldPublishGps(const Snapshot &data) const;
+
+  // Power optimization: time constants (public for use by Control state machine)
+  static constexpr uint32_t PUBLISH_MS = 60000;
+  static constexpr uint32_t GPS_SAMPLE_PERIOD_MS = 60 * 1000;
+  static constexpr uint32_t GPS_FIX_WINDOW_MS = 10 * 1000;
+  static constexpr uint32_t GPS_FIX_COLD_WINDOW_MS = 12 * 1000;
+  static constexpr uint32_t GPS_FIX_COLD_EXTENDED_MS = 15 * 1000;
+  static constexpr double GPS_MOVE_THRESHOLD_M = 5.0;
+  static constexpr uint32_t GPS_WARMUP_MS = 200;
+  static constexpr double GPS_MOVE_STRONG_THRESHOLD_M = 7.0;
 
  private:
   GPS() = default;
@@ -65,7 +92,6 @@ class GPS {
   static constexpr size_t UART_BUFFER_SIZE = 1024;
   static constexpr size_t READ_BUFFER_SIZE = 128;
   static constexpr size_t MAX_SENTENCE_LEN = 128;
-  static constexpr uint32_t PUBLISH_MS = 1000;
 
   void ensureStarted();
   void applyEnabled(bool enabled);
@@ -93,9 +119,15 @@ class GPS {
   TaskHandle_t m_task = nullptr;
   bool m_uartInstalled = false;
   bool m_enabled = false;
+  std::atomic<bool> m_gpsPowered = false;
   uint32_t m_lastPublishMs = 0;
   char m_sentence[MAX_SENTENCE_LEN] = {};
   size_t m_sentenceLen = 0;
+  // Power optimization: smart publish tracking
+  double m_lastSentLatitude = 0.0;
+  double m_lastSentLongitude = 0.0;
+  uint32_t m_lastSentMs = 0;
+  bool m_lastSentValid = false;
 };
 
 }  // namespace Furble

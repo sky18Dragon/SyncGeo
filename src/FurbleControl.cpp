@@ -1,5 +1,9 @@
 #include "FurbleControl.h"
 
+#include "FurbleGPS.h"
+#include "FurblePlatform.h"
+#include "Scan.h"
+
 namespace Furble {
 Control::Target::Target(Camera *camera) {
   m_Camera = camera;
@@ -34,6 +38,7 @@ Control::cmd_t Control::Target::getCommand(void) {
 }
 
 void Control::Target::updateGPS(const Camera::gps_t &gps, const Camera::timesync_t &timesync) {
+  const std::lock_guard<std::mutex> lock(m_GpsMutex);
   m_GPS = gps;
   m_Timesync = timesync;
 }
@@ -62,7 +67,17 @@ void Control::Target::task(void) {
         break;
       case CMD_GPS_UPDATE:
         ESP_LOGI(LOG_TAG, "updateGeoData(%s)", name);
-        m_Camera->updateGeoData(m_GPS, m_Timesync);
+        {
+          // D8: Snapshot GPS payload under mutex to prevent torn reads
+          Camera::gps_t gps;
+          Camera::timesync_t timesync;
+          {
+            const std::lock_guard<std::mutex> lock(m_GpsMutex);
+            gps = m_GPS;
+            timesync = m_Timesync;
+          }
+          m_Camera->updateGeoData(gps, timesync);
+        }
         break;
       case CMD_DISCONNECT:
         m_Camera->setActive(false);
@@ -93,27 +108,57 @@ Control &Control::getInstance(void) {
 }
 
 Control::state_t Control::connectAll(void) {
-  static uint32_t failcount = 0;
   uint32_t timeout = m_InfiniteReconnect ? TIMEOUT_INFINITE_MS : TIMEOUT_DEFAULT_MS;
-  const std::lock_guard<std::mutex> lock(m_Mutex);
 
-  // Iterate over cameras and attempt connection.
+  // D2: Start low-power reconnect scan before attempting connections.
+  // The scan callback fires through Scan::onResult → CameraList::match, populating
+  // the global scan result list. connectAll then iterates its own m_Targets.
+  bool reconnectScanStarted = false;
+  if (m_InfiniteReconnect) {
+    Scan::getInstance().startReconnectScan(
+        [](void *) {
+          // CameraList::match already called by Scan::onResult before this lambda fires.
+          // Results accumulate in CameraList; Control's reconnect path reads from m_Targets.
+        },
+        nullptr);
+    reconnectScanStarted = true;
+  }
+
+  // Snapshot target pointers under mutex to avoid holding it during connect/scan ops (narrow scope).
   Camera *camera = nullptr;
-  for (const auto &target : m_Targets) {
-    camera = target->getCamera();
-    if (!camera->isConnected()) {
-      m_ConnectCamera = camera;
-      if (!camera->connect(m_Power, timeout)) {
-        failcount++;
-        break;
-      } else {
-        m_ConnectCamera = nullptr;
+  {
+    const std::lock_guard<std::mutex> lock(m_Mutex);
+    for (const auto &target : m_Targets) {
+      if (!target->getCamera()->isConnected()) {
+        camera = target->getCamera();
+        m_ConnectCamera = camera;
+        break;  // serial connection — one at a time
       }
     }
   }
 
+  if (camera != nullptr) {
+    if (!camera->connect(m_Power, timeout)) {
+      m_BackoffFailCount++;
+    } else {
+      {
+        const std::lock_guard<std::mutex> lock(m_Mutex);
+        m_ConnectCamera = nullptr;
+      }
+      // Successfully connected — when all are connected, apply CONTROL profile
+      if (allConnected()) {
+        applyProfile(ActiveProfile::CONTROL);
+      }
+    }
+  }
+
+  if (reconnectScanStarted) {
+    Scan::getInstance().stop();
+  }
+
   if (allConnected()) {
-    failcount = 0;
+    m_BackoffFailCount = 0;
+    m_ColdStartStreak = 0;
     return STATE_ACTIVE;
   }
 
@@ -121,15 +166,74 @@ Control::state_t Control::connectAll(void) {
     return STATE_DISCONNECTING;
   }
 
-  if (m_InfiniteReconnect || (failcount < 2)) {
+  if (m_InfiniteReconnect || (m_BackoffFailCount < 2)) {
     if (m_InfiniteReconnect) {
-      // sleep to idle
-      vTaskDelay(pdMS_TO_TICKS(SLEEP_INFINITE_MS));
+      // D3: Use tiered backoff instead of hardcoded 5s
+      const uint32_t backoffMs = getBackoffMs(m_BackoffFailCount);
+      m_BackoffUntilMs = Platform::getInstance().tick() + backoffMs;
+      ESP_LOGI(LOG_TAG, "Backoff: %lums (failcount=%lu)", static_cast<unsigned long>(backoffMs),
+               static_cast<unsigned long>(m_BackoffFailCount));
+      vTaskDelay(pdMS_TO_TICKS(backoffMs));
     }
     return STATE_CONNECT;
   }
 
   return STATE_CONNECT_FAILED;
+}
+
+uint32_t Control::getBackoffMs(uint32_t failcount) {
+  // D3: Tiered backoff — 10s / 30s / 60s
+  if (failcount <= 1) return 10000;
+  if (failcount <= 9) return 30000;
+  return 60000;
+}
+
+void Control::applyProfile(ActiveProfile profile) {
+  if (m_Targets.empty()) return;
+  if (profile == m_ActiveProfile) return;  // skip redundant switches
+
+  const Camera::ConnectionProfile *camProfile = nullptr;
+  const char *label = nullptr;
+  if (profile == ActiveProfile::GPS) {
+    camProfile = &Camera::GPS_PROFILE;
+    label = "GPS";
+  } else if (profile == ActiveProfile::CONTROL) {
+    camProfile = &Camera::CONTROL_PROFILE;
+    label = "CONTROL";
+  }
+
+  if (camProfile == nullptr) return;
+
+  bool anyFailed = false;
+  for (const auto &target : m_Targets) {
+    Camera *cam = target->getCamera();
+    if (cam == nullptr) {
+      ESP_LOGW(LOG_TAG, "Profile switch %s: null camera in target", label);
+      continue;
+    }
+    if (!cam->isConnected()) continue;
+
+    if (!cam->requestConnectionUpdate(*camProfile)) {
+      anyFailed = true;
+    }
+  }
+
+  if (!anyFailed) {
+    m_ActiveProfile = profile;
+    ESP_LOGI(LOG_TAG, "BLE profile: %s (%u/%u/%u/%u)", label,
+             camProfile->minInterval, camProfile->maxInterval,
+             camProfile->latency, camProfile->timeout);
+  } else {
+    ESP_LOGW(LOG_TAG, "BLE profile switch to %s had failures", label);
+  }
+}
+
+uint32_t Control::getLastActivityMs(void) const {
+  return m_LastActivityMs;
+}
+
+void Control::notifyActivity(void) {
+  m_LastActivityMs = Platform::getInstance().tick();
 }
 
 void Control::task(void) {
@@ -141,7 +245,9 @@ void Control::task(void) {
       case STATE_IDLE:
         if (ret == pdTRUE) {
           if (cmd == CMD_CONNECT) {
+            ESP_LOGI(LOG_TAG, "State: IDLE -> CONNECT");
             m_State = STATE_CONNECT;
+            m_StateEnteredMs = Platform::getInstance().tick();
             continue;
           }
         }
@@ -149,7 +255,13 @@ void Control::task(void) {
 
       case STATE_CONNECT:
         m_State = STATE_CONNECTING;
+        m_StateEnteredMs = Platform::getInstance().tick();
+        ESP_LOGI(LOG_TAG, "State: CONNECT -> CONNECTING");
         m_State = connectAll();
+        if (m_State == STATE_ACTIVE) {
+          ESP_LOGI(LOG_TAG, "State: CONNECTING -> ACTIVE");
+          m_StateEnteredMs = Platform::getInstance().tick();
+        }
         break;
 
       case STATE_CONNECTING:
@@ -158,11 +270,17 @@ void Control::task(void) {
 
       case STATE_ACTIVE:
         if (!allConnected()) {
+          ESP_LOGI(LOG_TAG, "State: ACTIVE -> CONNECT (disconnected)");
           m_State = STATE_CONNECT;
+          m_StateEnteredMs = Platform::getInstance().tick();
           continue;
         }
 
         if (ret == pdTRUE) {
+          // User command received — transition to ACTIVE from IDLE if needed
+          if (m_LastActivityMs == 0) {
+            m_LastActivityMs = Platform::getInstance().tick();
+          }
           for (const auto &target : m_Targets) {
             switch (cmd) {
               case CMD_SHUTTER_PRESS:
@@ -177,7 +295,131 @@ void Control::task(void) {
                 break;
             }
           }
+        } else {
+          // D3: Check for idle timeout — transition to CONNECTED_IDLE after 60s no activity
+          const uint32_t now = Platform::getInstance().tick();
+          if (m_LastActivityMs != 0 && now - m_LastActivityMs >= 60000) {
+            ESP_LOGI(LOG_TAG, "State: ACTIVE -> CONNECTED_IDLE (60s idle)");
+            m_State = STATE_CONNECTED_IDLE;
+            m_StateEnteredMs = now;
+            applyProfile(ActiveProfile::GPS);
+          }
         }
+        break;
+
+      case STATE_CONNECTED_IDLE:
+        if (!allConnected()) {
+          ESP_LOGI(LOG_TAG, "State: CONNECTED_IDLE -> CONNECT (disconnected)");
+          m_State = STATE_CONNECT;
+          m_StateEnteredMs = Platform::getInstance().tick();
+          continue;
+        }
+
+        if (ret == pdTRUE) {
+          switch (cmd) {
+            case CMD_GPS_UPDATE:
+              // GPS update received during idle — handle it then go back to idle
+              for (const auto &target : m_Targets) {
+                target->sendCommand(cmd);
+              }
+              break;
+            case CMD_SHUTTER_PRESS:
+            case CMD_SHUTTER_RELEASE:
+            case CMD_FOCUS_PRESS:
+            case CMD_FOCUS_RELEASE:
+              // User command — wake to ACTIVE (control profile) and forward.
+              // NOTE: applyProfile requests BLE param update but does NOT wait for completion.
+              // The first shutter command may still use GPS_PROFILE latency (~200ms vs ~30ms).
+              // This is an accepted tradeoff: waiting would add 50-200ms to every wake-up.
+              ESP_LOGI(LOG_TAG, "State: CONNECTED_IDLE -> ACTIVE (user command)");
+              notifyActivity();
+              m_State = STATE_ACTIVE;
+              m_StateEnteredMs = Platform::getInstance().tick();
+              applyProfile(ActiveProfile::CONTROL);
+              for (const auto &target : m_Targets) {
+                target->sendCommand(cmd);
+              }
+              break;
+            default:
+              break;
+          }
+        }
+
+        // Check GPS sampling period — only if GPS is enabled
+        if (GPS::getInstance().isEnabled()) {
+          const uint32_t now = Platform::getInstance().tick();
+          if (m_GpsLastSampleMs == 0 || now - m_GpsLastSampleMs >= 60000) {
+            ESP_LOGI(LOG_TAG, "State: CONNECTED_IDLE -> GPS_SAMPLE");
+            m_State = STATE_GPS_SAMPLE;
+            m_StateEnteredMs = now;
+            m_GpsLastSampleMs = now;
+            continue;
+          }
+        }
+        break;
+
+      case STATE_GPS_SAMPLE:
+        // Proactively sample GPS snapshot and publish if fix is from CURRENT window.
+        {
+          const auto gpsData = GPS::getInstance().snapshot();
+          const bool fresh = (gpsData.lastFixMs >= m_StateEnteredMs)
+                          && (gpsData.lastLocationMs >= m_StateEnteredMs)
+                          && (gpsData.lastTimeMs >= m_StateEnteredMs);
+          if (fresh && gpsData.enabled && gpsData.hasFix && gpsData.validLocation
+              && gpsData.validDate && gpsData.validTime) {
+            ESP_LOGI(LOG_TAG, "State: GPS_SAMPLE -> CAMERA_GPS_WRITE (fresh fix acquired)");
+            const Camera::gps_t gps = {
+                gpsData.latitude, gpsData.longitude,
+                gpsData.altitude, gpsData.satellites,
+            };
+            const Camera::timesync_t timesync = {
+                gpsData.year, gpsData.month, gpsData.day,
+                gpsData.hour, gpsData.minute, gpsData.second,
+                gpsData.centisecond,
+            };
+            for (const auto &target : m_Targets) {
+              target->updateGPS(gps, timesync);
+              target->sendCommand(CMD_GPS_UPDATE);
+            }
+            m_State.store(STATE_CAMERA_GPS_WRITE, std::memory_order_release);
+            m_StateEnteredMs = Platform::getInstance().tick();
+            applyProfile(ActiveProfile::GPS);
+            continue;
+          }
+        }
+        // Also handle async GPS_UPDATE if it arrives
+        if (ret == pdTRUE && cmd == CMD_GPS_UPDATE) {
+          ESP_LOGI(LOG_TAG, "State: GPS_SAMPLE -> CAMERA_GPS_WRITE (async publish)");
+          m_State = STATE_CAMERA_GPS_WRITE;
+          m_StateEnteredMs = Platform::getInstance().tick();
+          applyProfile(ActiveProfile::GPS);
+          for (const auto &target : m_Targets) {
+            target->sendCommand(cmd);
+          }
+          continue;
+        }
+        // Timeout: no fix acquired within window
+        {
+          const uint32_t now = Platform::getInstance().tick();
+          if (now - m_StateEnteredMs >= GPS::GPS_FIX_WINDOW_MS) {
+            ESP_LOGI(LOG_TAG, "State: GPS_SAMPLE -> CONNECTED_IDLE (timeout, %lu consecutive)",
+                     static_cast<unsigned long>(m_ColdStartStreak + 1));
+            m_State = STATE_CONNECTED_IDLE;
+            m_StateEnteredMs = now;
+            applyProfile(ActiveProfile::GPS);
+            m_ColdStartStreak++;
+            continue;
+          }
+        }
+        break;
+
+      case STATE_CAMERA_GPS_WRITE:
+        // GPS write complete, return to idle
+        ESP_LOGI(LOG_TAG, "State: CAMERA_GPS_WRITE -> CONNECTED_IDLE");
+        m_State = STATE_CONNECTED_IDLE;
+        m_StateEnteredMs = Platform::getInstance().tick();
+        applyProfile(ActiveProfile::GPS);
+        m_ColdStartStreak = 0;
         break;
 
       case STATE_DISCONNECTING:
@@ -200,6 +442,8 @@ BaseType_t Control::updateGPS(const Camera::gps_t &gps, const Camera::timesync_t
 }
 
 bool Control::allConnected(void) {
+  if (m_Targets.empty()) return false;
+
   for (const auto &target : m_Targets) {
     if (!target->getCamera()->isConnected()) {
       return false;
@@ -240,6 +484,15 @@ void Control::disconnect(void) {
   }
 
   m_Targets.clear();
+
+  // Reset backoff state
+  m_BackoffFailCount = 0;
+  m_LastActivityMs = 0;
+  m_ColdStartStreak = 0;
+  m_BackoffUntilMs = 0;
+  m_GpsLastSampleMs = 0;
+  m_ActiveProfile = ActiveProfile::NONE;
+
   m_State = STATE_IDLE;
 }
 

@@ -105,6 +105,23 @@ class Camera: public NimBLEClientCallbacks {
    */
   virtual void updateGeoData(const gps_t &gps, const timesync_t &timesync) = 0;
 
+  // Power optimization: BLE connection parameter profiles (D5)
+  struct ConnectionProfile {
+    uint16_t minInterval;
+    uint16_t maxInterval;
+    uint16_t latency;
+    uint16_t timeout;
+  };
+
+  static constexpr ConnectionProfile GPS_PROFILE = {160, 320, 4, 800};
+  static constexpr ConnectionProfile CONTROL_PROFILE = {24, 48, 0, 400};
+
+  /**
+   * Request BLE connection parameter update to the specified profile.
+   * Returns true if the request was sent (may be rejected by peripheral).
+   */
+  bool requestConnectionUpdate(const ConnectionProfile &profile);
+
   virtual size_t getSerialisedBytes(void) const = 0;
   virtual bool serialise(void *buffer, size_t bytes) const = 0;
 

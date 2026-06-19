@@ -38,7 +38,7 @@ class UI {
   static constexpr int DRAW_LINES = 20;
   static constexpr size_t BUFFER_SIZE = WIDTH * DRAW_LINES * sizeof(uint16_t);
   static constexpr size_t LINE_COUNT = 6;
-  static constexpr uint32_t SCAN_MS = 15000;
+  static constexpr uint32_t SCAN_MS = 30000;  // Match pairing scan 30s duration
   static constexpr uint32_t SCAN_RENDER_MS = 2000;
   static constexpr uint32_t CONNECT_RENDER_MS = 1000;
   static constexpr uint32_t GPS_RENDER_MS = 1000;
@@ -152,6 +152,7 @@ class UI {
   uint32_t m_lastActivityMs = 0;
   bool m_lowBatteryWarned = false;
   bool m_sleeping = false;
+  bool m_renderDirty = true;
   std::string m_message;
   std::string m_confirmPrompt;
 };
