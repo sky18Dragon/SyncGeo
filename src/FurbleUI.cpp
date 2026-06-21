@@ -24,6 +24,30 @@ LV_FONT_DECLARE(furble_font_zh_14);
 namespace {
 constexpr char TAG[] = "ui";
 constexpr size_t CAMERA_PAGE_LINES = 4;
+constexpr int TITLE_X = 14;
+constexpr int TITLE_Y = 10;
+constexpr int TITLE_HEIGHT = 24;
+constexpr int TITLE_WIDTH = 108;
+constexpr int HEADER_RIGHT_WIDTH = 64;
+constexpr int HEADER_RIGHT_Y = 10;
+constexpr int HEADER_LINE_Y = 40;
+constexpr int CONTENT_X = 14;
+constexpr int CONTENT_WIDTH = 172;
+constexpr int CONTENT_TEXT_WIDTH = 160;
+constexpr int CARD_RADIUS = 10;
+constexpr int CARD_BORDER_WIDTH = 1;
+constexpr int COMPACT_PAGE_STEP = 30;
+constexpr int COMPACT_PAGE_CARD_HEIGHT = 26;
+constexpr int CONNECT_PAGE_STEP = 24;
+constexpr int CONNECT_PAGE_CARD_HEIGHT = 22;
+constexpr int REMOTE_GRID_START_Y = 82;
+constexpr int REMOTE_GRID_CARD_HEIGHT = 34;
+constexpr int REMOTE_GRID_GAP_Y = 10;
+constexpr int MESSAGE_CARD_Y = 82;
+constexpr int MESSAGE_CARD_HEIGHT = 30;
+
+int compactPageStartY(size_t visibleRows) { return visibleRows <= 3 ? 62 : 56; }
+
 enum class HomeAction { SCAN, SAVED, GPS, REMOTE, DISCONNECT, SLEEP };
 
 // Localisation mapping
@@ -54,8 +78,6 @@ const UI_Text T_TITLE_SCAN = {"< scan", "< 扫描"};
 const UI_Text T_LOOKING_FOR_CAM = {"looking for camera", "正在寻找相机"};
 const UI_Text T_SCAN_TIME = {"time %lus / %lus", "时间 %lus / %lus"};
 const UI_Text T_SCAN_MATCHES = {"matches %u", "已找到 %u"};
-const UI_Text T_PAIRING_MODE = {"pairing mode", "配对模式"};
-const UI_Text T_KEEP_AWAKE = {"keep awake", "保持唤醒"};
 const UI_Text T_CANCEL = {"Cancel", "取消"};
 const UI_Text T_TAP_CANCEL = {"tap cancel", "点击取消"};
 const UI_Text T_PREPARING_SCAN = {"Preparing scan", "准备扫描"};
@@ -85,14 +107,11 @@ const UI_Text T_GPS_ON_OFF = {"GPS  %s", "GPS  %s"};
 const UI_Text T_ON = {"ON", "开"};
 const UI_Text T_OFF = {"OFF", "关"};
 const UI_Text T_TAP_TO_TURN_ON = {"Tap to turn on", "点击开启"};
-const UI_Text T_GPS_RX_INFO = {"RX IO44  9600", "接收脚 IO44 9600"};
 const UI_Text T_GPS_TX_INFO = {"TX not required", "无需发送脚"};
 const UI_Text T_WAITING_NMEA = {"waiting NMEA", "等待 NMEA 数据"};
 const UI_Text T_SEARCHING_FIX = {"searching fix", "正在搜星定位"};
-const UI_Text T_NMEA_AGE = {"NMEA age %s", "NMEA 延迟 %s"};
 const UI_Text T_SAT_FIX = {"sat %u  fix %u", "卫星 %u  定位 %u"};
 const UI_Text T_KEEP_ANTENNA_OPEN = {"keep antenna open", "保持天线无遮挡"};
-const UI_Text T_OUTDOORS_HELPS = {"outdoors helps", "户外信号更好"};
 const UI_Text T_AGE_SAT = {"age %s  sat %u", "延迟 %s  卫星 %u"};
 const UI_Text T_LAT = {"lat %.6f", "纬度 %.6f"};
 const UI_Text T_LON = {"lon %.6f", "经度 %.6f"};
@@ -278,25 +297,25 @@ void UI::createScreen() {
 
   m_title = lv_label_create(screen);
   lv_label_set_text(m_title, L(T_SYNCGEO));
-  lv_obj_set_size(m_title, 200, 28);
+  lv_obj_set_size(m_title, 200, TITLE_HEIGHT);
   lv_label_set_long_mode(m_title, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_font(m_title, &furble_font_zh_14, 0);
   lv_obj_set_style_text_align(m_title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_pad_top(m_title, 5, 0);
+  lv_obj_set_style_pad_top(m_title, 4, 0);
   lv_obj_align(m_title, LV_ALIGN_TOP_MID, 0, 0);
 
   m_headerRight = lv_label_create(screen);
   lv_label_set_text(m_headerRight, "");
-  lv_obj_set_width(m_headerRight, 64);
+  lv_obj_set_width(m_headerRight, HEADER_RIGHT_WIDTH);
   lv_label_set_long_mode(m_headerRight, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_font(m_headerRight, &furble_font_zh_14, 0);
   lv_obj_set_style_text_align(m_headerRight, LV_TEXT_ALIGN_RIGHT, 0);
-  lv_obj_align(m_headerRight, LV_ALIGN_TOP_RIGHT, -16, 12);
+  lv_obj_align(m_headerRight, LV_ALIGN_TOP_RIGHT, -TITLE_X, HEADER_RIGHT_Y);
   lv_obj_add_flag(m_headerRight, LV_OBJ_FLAG_HIDDEN);
 
   m_headerLine = lv_obj_create(screen);
-  lv_obj_set_size(m_headerLine, 168, 1);
-  lv_obj_align(m_headerLine, LV_ALIGN_TOP_LEFT, 16, 42);
+  lv_obj_set_size(m_headerLine, CONTENT_WIDTH, 1);
+  lv_obj_align(m_headerLine, LV_ALIGN_TOP_LEFT, CONTENT_X, HEADER_LINE_Y);
   lv_obj_clear_flag(m_headerLine, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(m_headerLine, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(m_headerLine, lv_color_black(), 0);
@@ -308,19 +327,19 @@ void UI::createScreen() {
     const int y = 40 + static_cast<int>(i) * 23;
 
     m_cards[i] = lv_obj_create(screen);
-    lv_obj_set_size(m_cards[i], 168, 21);
-    lv_obj_align(m_cards[i], LV_ALIGN_TOP_LEFT, 16, y);
+    lv_obj_set_size(m_cards[i], CONTENT_WIDTH, 21);
+    lv_obj_align(m_cards[i], LV_ALIGN_TOP_LEFT, CONTENT_X, y);
     lv_obj_clear_flag(m_cards[i], LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(m_cards[i], 8, 0);
-    lv_obj_set_style_border_width(m_cards[i], 1, 0);
+    lv_obj_set_style_radius(m_cards[i], CARD_RADIUS, 0);
+    lv_obj_set_style_border_width(m_cards[i], CARD_BORDER_WIDTH, 0);
     lv_obj_set_style_pad_all(m_cards[i], 0, 0);
     lv_obj_add_flag(m_cards[i], LV_OBJ_FLAG_HIDDEN);
 
     m_lines[i] = lv_label_create(screen);
-    lv_obj_set_width(m_lines[i], 156);
+    lv_obj_set_width(m_lines[i], CONTENT_TEXT_WIDTH);
     lv_label_set_long_mode(m_lines[i], LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_font(m_lines[i], &furble_font_zh_14, 0);
-    lv_obj_align(m_lines[i], LV_ALIGN_TOP_LEFT, 22, y + 3);
+    lv_obj_align(m_lines[i], LV_ALIGN_TOP_LEFT, CONTENT_X + 8, y + 3);
   }
 
   m_footer = lv_label_create(screen);
@@ -348,8 +367,8 @@ void UI::setTitleBar(const char *title, bool inverted) {
   lv_obj_clear_flag(m_headerLine, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(m_footer, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(m_footer, "");
-  lv_obj_set_size(m_title, 96, 28);
-  lv_obj_align(m_title, LV_ALIGN_TOP_LEFT, 16, 12);
+  lv_obj_set_size(m_title, TITLE_WIDTH, TITLE_HEIGHT);
+  lv_obj_align(m_title, LV_ALIGN_TOP_LEFT, TITLE_X, TITLE_Y);
   lv_obj_set_style_text_align(m_title, LV_TEXT_ALIGN_LEFT, 0);
   lv_obj_set_style_pad_top(m_title, 0, 0);
   lv_obj_set_style_pad_left(m_title, 0, 0);
@@ -374,14 +393,14 @@ void UI::layoutRows(int startY, int step, int cardHeight) {
   for (size_t i = 0; i < LINE_COUNT; ++i) {
     const int y = startY + static_cast<int>(i) * step;
     const int labelOffset = cardHeight >= 24 ? 4 : 3;
-    m_lineRects[i].x = 16;
+    m_lineRects[i].x = CONTENT_X;
     m_lineRects[i].y = static_cast<int16_t>(y);
-    m_lineRects[i].w = 168;
+    m_lineRects[i].w = CONTENT_WIDTH;
     m_lineRects[i].h = static_cast<int16_t>(cardHeight);
-    lv_obj_set_size(m_cards[i], 168, cardHeight);
-    lv_obj_align(m_cards[i], LV_ALIGN_TOP_LEFT, 16, y);
-    lv_obj_set_width(m_lines[i], 156);
-    lv_obj_align(m_lines[i], LV_ALIGN_TOP_LEFT, 22, y + labelOffset);
+    lv_obj_set_size(m_cards[i], CONTENT_WIDTH, cardHeight);
+    lv_obj_align(m_cards[i], LV_ALIGN_TOP_LEFT, CONTENT_X, y);
+    lv_obj_set_width(m_lines[i], CONTENT_TEXT_WIDTH);
+    lv_obj_align(m_lines[i], LV_ALIGN_TOP_LEFT, CONTENT_X + 8, y + labelOffset);
   }
 }
 
@@ -423,11 +442,11 @@ void UI::setLineStyle(size_t index, LineStyle style, lv_text_align_t align) {
   lv_obj_set_style_bg_opa(m_cards[index], LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(m_cards[index], style == LineStyle::ACTIVE ? lv_color_black() : lv_color_white(), 0);
   lv_obj_set_style_border_color(m_cards[index], lv_color_black(), 0);
-  lv_obj_set_style_border_width(m_cards[index], style == LineStyle::ACTIVE ? 0 : 1, 0);
+  lv_obj_set_style_border_width(m_cards[index], CARD_BORDER_WIDTH, 0);
 }
 
 void UI::clearLineStyles(bool resetLayout) {
-  if (resetLayout) layoutRows(48, 22, 20);
+  if (resetLayout) layoutRows(50, 24, 22);
   for (size_t i = 0; i < LINE_COUNT; ++i) {
     setLineStyle(i, LineStyle::PLAIN);
     setLine(i, "");
@@ -544,7 +563,8 @@ void UI::renderHome() {
 
 void UI::renderScanning() {
   setTitleBar(L(T_TITLE_SCAN), true);
-  clearLineStyles();
+  clearLineStyles(false);
+  layoutRows(compactPageStartY(4), COMPACT_PAGE_STEP, COMPACT_PAGE_CARD_HEIGHT);
   const uint32_t elapsed = Platform::getInstance().tick() - m_scanStartedMs;
   char line[96];
 
@@ -557,26 +577,24 @@ void UI::renderScanning() {
   std::snprintf(line, sizeof(line), L(T_SCAN_MATCHES), static_cast<unsigned>(m_scanHits.load()));
   setLine(2, line);
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  setLine(3, L(T_PAIRING_MODE));
-  setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-  setLine(4, L(T_KEEP_AWAKE));
-  setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-  setLine(5, L(T_CANCEL));
-  setLineStyle(5, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  lv_label_set_text(m_footer, L(T_TAP_CANCEL));
+  setLine(3, L(T_CANCEL));
+  setLineStyle(3, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
+  lv_label_set_text(m_footer, "");
+  lv_obj_add_flag(m_footer, LV_OBJ_FLAG_HIDDEN);
 }
 
 void UI::renderCameraList() {
   setTitleBar(m_listFromScan ? L(T_TITLE_SCAN_RESULTS) : L(T_TITLE_CAMERAS), true);
   clearLineStyles(false);
-  layoutRows(54, 34, 30);
   const size_t count = CameraList::size();
   if (count == 0) {
+    layoutRows(compactPageStartY(3), COMPACT_PAGE_STEP, COMPACT_PAGE_CARD_HEIGHT);
     setLine(0, L(T_NO_CAMERAS));
     setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
     setLine(1, m_listFromScan ? L(T_TRY_SCAN_AGAIN) : L(T_USE_SCAN_FIRST));
-    setLineStyle(1, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
+    setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   } else {
+    layoutRows(compactPageStartY(4), COMPACT_PAGE_STEP, COMPACT_PAGE_CARD_HEIGHT);
     const size_t start = (m_listCursor / CAMERA_PAGE_LINES) * CAMERA_PAGE_LINES;
     for (size_t i = 0; i < CAMERA_PAGE_LINES; ++i) {
       const size_t index = start + i;
@@ -592,7 +610,8 @@ void UI::renderCameraList() {
 
 void UI::renderConnecting() {
   setTitleBar(L(T_TITLE_CONNECTING), true);
-  clearLineStyles();
+  clearLineStyles(false);
+  layoutRows(50, CONNECT_PAGE_STEP, CONNECT_PAGE_CARD_HEIGHT);
   auto &control = Control::getInstance();
   Camera *camera = control.getConnectingCamera();
   char line[96];
@@ -610,18 +629,19 @@ void UI::renderConnecting() {
   setLine(2, line);
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   setLine(3, L(T_MAY_TAKE_30S));
-  setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
+  setLineStyle(3, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   setLine(4, L(T_KEEP_CAM_AWAKE));
-  setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
+  setLineStyle(4, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   setLine(5, L(T_CANCEL));
   setLineStyle(5, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-  lv_label_set_text(m_footer, L(T_TAP_CANCEL));
+  lv_label_set_text(m_footer, "");
+  lv_obj_add_flag(m_footer, LV_OBJ_FLAG_HIDDEN);
 }
 
 void UI::renderRemote() {
   setTitleBar(L(T_TITLE_REMOTE), true);
   clearLineStyles(false);
-  layoutRows(48, 22, 20);
+  layoutRows(50, CONNECT_PAGE_STEP, CONNECT_PAGE_CARD_HEIGHT);
   auto &control = Control::getInstance();
   char line[96];
 
@@ -630,7 +650,7 @@ void UI::renderRemote() {
   setLine(0, line);
   setLineStyle(0, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   m_lineTouchable[0] = false;
-  layoutGrid(1, 4, 14, 78, 82, 38, 8, 14);
+  layoutGrid(1, 4, CONTENT_X, REMOTE_GRID_START_Y, 82, REMOTE_GRID_CARD_HEIGHT, 8, REMOTE_GRID_GAP_Y);
   setLine(1, L(T_SHUTTER));
   setLineStyle(1, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
   setLine(2, remotePowerLabel());
@@ -645,13 +665,20 @@ void UI::renderRemote() {
 void UI::renderGPS() {
   setTitleBar(L(T_TITLE_GPS), true);
   clearLineStyles(false);
-  layoutRows(46, 25, 23);
 
   GPS &gps = GPS::getInstance();
   const GPS::Snapshot snapshot = gps.snapshot();
   char line[96];
   char age[16];
   const uint32_t now = Platform::getInstance().tick();
+
+  if (!snapshot.enabled) {
+    layoutRows(compactPageStartY(3), COMPACT_PAGE_STEP, COMPACT_PAGE_CARD_HEIGHT);
+  } else if (!snapshot.hasFix) {
+    layoutRows(compactPageStartY(4), COMPACT_PAGE_STEP, COMPACT_PAGE_CARD_HEIGHT);
+  } else {
+    layoutRows(46, 25, 23);
+  }
 
   std::snprintf(line, sizeof(line), L(T_GPS_ON_OFF), snapshot.enabled ? L(T_ON) : L(T_OFF));
   setLine(0, line);
@@ -660,32 +687,24 @@ void UI::renderGPS() {
   if (!snapshot.enabled) {
     setLine(1, L(T_TAP_TO_TURN_ON));
     setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-    setLine(2, "ATGM336H-5N");
-    setLineStyle(2, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(3, L(T_GPS_RX_INFO));
-    setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(4, L(T_GPS_TX_INFO));
-    setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    lv_label_set_text(m_footer, L(T_TAP_BACK));
+    setLine(2, L(T_GPS_TX_INFO));
+    setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(m_footer, "");
+    lv_obj_add_flag(m_footer, LV_OBJ_FLAG_HIDDEN);
     m_lastGpsRenderMs = now;
     return;
   }
 
   if (!snapshot.hasFix) {
-    formatAge(age, sizeof(age), now, snapshot.lastSentenceMs);
     setLine(1, snapshot.lastSentenceMs == 0 ? L(T_WAITING_NMEA) : L(T_SEARCHING_FIX));
     setLineStyle(1, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-    std::snprintf(line, sizeof(line), L(T_NMEA_AGE), age);
+    std::snprintf(line, sizeof(line), L(T_SAT_FIX), snapshot.satellites, snapshot.fixQuality);
     setLine(2, line);
     setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
-    std::snprintf(line, sizeof(line), L(T_SAT_FIX), snapshot.satellites, snapshot.fixQuality);
-    setLine(3, line);
-    setLineStyle(3, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(4, snapshot.antenna[0] ? snapshot.antenna : L(T_KEEP_ANTENNA_OPEN));
-    setLineStyle(4, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    setLine(5, L(T_OUTDOORS_HELPS));
-    setLineStyle(5, LineStyle::PLAIN, LV_TEXT_ALIGN_CENTER);
-    lv_label_set_text(m_footer, L(T_TAP_BACK));
+    setLine(3, snapshot.antenna[0] ? snapshot.antenna : L(T_KEEP_ANTENNA_OPEN));
+    setLineStyle(3, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(m_footer, "");
+    lv_obj_add_flag(m_footer, LV_OBJ_FLAG_HIDDEN);
     m_lastGpsRenderMs = now;
     return;
   }
@@ -717,16 +736,17 @@ void UI::renderGPS() {
 
 void UI::renderMessage() {
   setTitleBar(L(T_SYNCGEO), true);
-  clearLineStyles();
-  setLine(1, m_message);
-  setLineStyle(1, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
+  clearLineStyles(false);
+  layoutRows(MESSAGE_CARD_Y, COMPACT_PAGE_STEP, MESSAGE_CARD_HEIGHT);
+  setLine(0, m_message);
+  setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
   lv_label_set_text(m_footer, L(T_WAIT));
 }
 
 void UI::renderConfirm() {
   setTitleBar(L(T_TITLE_CONFIRM), true);
   clearLineStyles(false);
-  layoutRows(58, 42, 36);
+  layoutRows(compactPageStartY(3), COMPACT_PAGE_STEP, COMPACT_PAGE_CARD_HEIGHT);
 
   setLine(0, m_confirmPrompt.empty() ? L(T_CONFIRM_PROMPT) : m_confirmPrompt);
   setLineStyle(0, LineStyle::ACTIVE, LV_TEXT_ALIGN_CENTER);
@@ -735,6 +755,7 @@ void UI::renderConfirm() {
   setLine(2, L(T_NO));
   setLineStyle(2, LineStyle::CARD, LV_TEXT_ALIGN_CENTER);
   lv_label_set_text(m_footer, "");
+  lv_obj_add_flag(m_footer, LV_OBJ_FLAG_HIDDEN);
 }
 
 std::string UI::cameraLabel(size_t index) const {
@@ -1225,7 +1246,7 @@ void UI::handleHomeTouch(const WaveshareEPaper154::TouchEvent &event) {
 }
 
 void UI::handleScanningTouch(const WaveshareEPaper154::TouchEvent &event) {
-  if (!isHeaderTap(event) && hitLine(event) != 5) return;
+  if (!isHeaderTap(event) && hitLine(event) != 3) return;
   stopScan();
   goHome();
 }

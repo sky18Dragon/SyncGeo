@@ -1,0 +1,12 @@
+{
+  "id": "continue-ui-visual-unification",
+  "title": "Continue unifying lower-page UI visual system",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "embedded",
+  "currentPhase": "completed",
+  "nextAction": "Flash firmware and visually verify camera list, remote, confirm, and message pages on device",
+  "createdAt": "2026-06-21T22:20:00+08:00",
+  "branch": "main"
+}
