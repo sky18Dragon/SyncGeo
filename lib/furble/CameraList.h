@@ -28,6 +28,11 @@ class CameraList {
   static void load(void);
 
   /**
+   * Count saved entries skipped by the last load because BLE bond was missing.
+   */
+  static size_t getLastLoadSkippedUnbondedCount(void);
+
+  /**
    * Get number of saved connections.
    */
   static size_t getSaveCount(void);
@@ -39,10 +44,6 @@ class CameraList {
    */
   static bool match(const NimBLEAdvertisedDevice *pDevice);
 
-  /**
-   * Add FauxNY device to the list.
-   */
-  static void addFauxNY(void);
 
   /**
    * Number of connectable devices.
@@ -79,6 +80,7 @@ class CameraList {
    * List of connectable devices.
    */
   static std::vector<std::unique_ptr<Furble::Camera>> m_ConnectList;
+  static size_t m_LastLoadSkippedUnbonded;
 
   static Preferences m_Prefs;
 };

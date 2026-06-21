@@ -23,14 +23,6 @@ class Camera: public NimBLEClientCallbacks {
    * Camera types.
    */
   enum class Type : uint32_t {
-    FUJIFILM_BASIC = 1,
-    CANON_EOS_SMART = 2,
-    CANON_EOS_REMOTE = 3,
-    MOBILE_DEVICE = 4,  // Deprecated, no longer supported
-    FAUXNY = 5,
-    NIKON = 6,
-    SONY = 7,
-    FUJIFILM_SECURE = 8,
     RICOH = 9,
   };
 

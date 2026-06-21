@@ -24,8 +24,6 @@ class Scan: public NimBLEScanCallbacks {
   enum class Mode : uint8_t {
     NONE = 0,
     PAIRING,
-    RECONNECT,
-    PROTOCOL,  // Nikon/Fujifilm internal scans
   };
 
   static Scan &getInstance(void);
@@ -42,21 +40,11 @@ class Scan: public NimBLEScanCallbacks {
   void startPairingScan(std::function<void(void *)> scanCallback, void *scanPrivateData);
 
   /**
-   * Start reconnect burst scan: 3s passive scan at ~5% duty cycle.
-   * For low-power background reconnection.
-   */
-  void startReconnectScan(std::function<void(void *)> scanCallback, void *scanPrivateData);
-
-  /**
    * Start the scan for BLE advertisements with a callback function when a
    * matching reseult is encountered.
    */
   void start(std::function<void(void *)> scanCallback, void *scanResultPrivateData);
 
-  /**
-   * Start scanning with a custom callback system.
-   */
-  void start(NimBLEScanCallbacks *pScanCallbacks, uint32_t duration);
 
   /**
    * Stop the scan.
@@ -94,10 +82,6 @@ class Scan: public NimBLEScanCallbacks {
   // Power optimization: scan mode and parameter save/restore
   Mode m_Mode = Mode::NONE;
   bool m_lockAcquired = false;  // independent of mode — prevents lock leak
-  // Saved parameters for protocol scan restore
-  bool m_SavedActive = true;
-  uint16_t m_SavedInterval = 6553;
-  uint16_t m_SavedWindow = 6553;
 };
 
 }  // namespace Furble

@@ -1,14 +1,7 @@
 #include <NimBLEAdvertisedDevice.h>
 #include <Preferences.h>
 
-#include "CanonEOSRemote.h"
-#include "CanonEOSSmart.h"
-#include "FauxNY.h"
-#include "FujifilmBasic.h"
-#include "FujifilmSecure.h"
-#include "Nikon.h"
 #include "Ricoh.h"
-#include "Sony.h"
 
 #include "CameraList.h"
 
@@ -17,6 +10,7 @@
 namespace Furble {
 
 std::vector<std::unique_ptr<Furble::Camera>> CameraList::m_ConnectList;
+size_t CameraList::m_LastLoadSkippedUnbonded = 0;
 Preferences CameraList::m_Prefs;
 
 /**
@@ -140,54 +134,33 @@ void CameraList::remove(Furble::Camera *camera) {
 void CameraList::load(void) {
   m_Prefs.begin(FURBLE_STR, true);
   m_ConnectList.clear();
+  m_LastLoadSkippedUnbonded = 0;
   std::vector<index_entry_t> index = load_index();
   for (const auto &i : index) {
+    if (i.type != Camera::Type::RICOH) {
+      ESP_LOGW(FURBLE_STR, "Ignoring saved non-Ricoh camera entry: %s", i.name);
+      continue;
+    }
+
     size_t dbytes = m_Prefs.getBytesLength(i.name);
     if (dbytes == 0) {
       continue;
     }
     uint8_t dbuffer[dbytes] = {0};
     m_Prefs.get(i.name, dbuffer, dbytes);
-
-    switch (i.type) {
-      case Camera::Type::FUJIFILM_BASIC:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::FujifilmBasic>(static_cast<const void *>(dbuffer), dbytes));
-        break;
-      case Camera::Type::CANON_EOS_SMART:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::CanonEOSSmart>(static_cast<const void *>(dbuffer), dbytes));
-        break;
-      case Camera::Type::CANON_EOS_REMOTE:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::CanonEOSRemote>(static_cast<const void *>(dbuffer), dbytes));
-        break;
-      case Camera::Type::MOBILE_DEVICE:
-        ESP_LOGW(FURBLE_STR, "MobileDevice support has been removed.");
-        break;
-      case Camera::Type::FAUXNY:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::FauxNY>(static_cast<const void *>(dbuffer), dbytes));
-        break;
-      case Camera::Type::NIKON:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::Nikon>(static_cast<const void *>(dbuffer), dbytes));
-        break;
-      case Camera::Type::SONY:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::Sony>(static_cast<const void *>(dbuffer), dbytes));
-        break;
-      case Camera::Type::RICOH:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::Ricoh>(static_cast<const void *>(dbuffer), dbytes));
-        break;
-      case Camera::Type::FUJIFILM_SECURE:
-        m_ConnectList.push_back(
-            std::make_unique<Furble::FujifilmSecure>(static_cast<const void *>(dbuffer), dbytes));
-        break;
+    auto camera = std::make_unique<Furble::Ricoh>(static_cast<const void *>(dbuffer), dbytes);
+    if (!NimBLEDevice::isBonded(camera->getAddress())) {
+      ESP_LOGW(FURBLE_STR, "Skipping saved Ricoh without BLE bond: %s", i.name);
+      m_LastLoadSkippedUnbonded++;
+      continue;
     }
+    m_ConnectList.push_back(std::move(camera));
   }
   m_Prefs.end();
+}
+
+size_t CameraList::getLastLoadSkippedUnbondedCount(void) {
+  return m_LastLoadSkippedUnbonded;
 }
 
 size_t CameraList::getSaveCount(void) {
@@ -195,7 +168,13 @@ size_t CameraList::getSaveCount(void) {
   auto index = load_index();
   m_Prefs.end();
 
-  return index.size();
+  size_t ricohCount = 0;
+  for (const auto &entry : index) {
+    if (entry.type == Camera::Type::RICOH) {
+      ricohCount++;
+    }
+  }
+  return ricohCount;
 }
 
 size_t CameraList::size(void) {
@@ -215,34 +194,12 @@ Furble::Camera *CameraList::get(size_t n) {
 }
 
 bool CameraList::match(const NimBLEAdvertisedDevice *pDevice) {
-  if (FujifilmBasic::matches(pDevice)) {
-    m_ConnectList.push_back(std::make_unique<Furble::FujifilmBasic>(pDevice));
-    return true;
-  } else if (CanonEOSSmart::matches(pDevice)) {
-    m_ConnectList.push_back(std::make_unique<Furble::CanonEOSSmart>(pDevice));
-    return true;
-  } else if (CanonEOSRemote::matches(pDevice)) {
-    m_ConnectList.push_back(std::make_unique<Furble::CanonEOSRemote>(pDevice));
-    return true;
-  } else if (Nikon::matches(pDevice)) {
-    m_ConnectList.push_back(std::make_unique<Furble::Nikon>(pDevice));
-    return true;
-  } else if (Ricoh::matches(pDevice)) {
+  if (Ricoh::matches(pDevice)) {
     m_ConnectList.push_back(std::make_unique<Furble::Ricoh>(pDevice));
-    return true;
-  } else if (Sony::matches(pDevice)) {
-    m_ConnectList.push_back(std::make_unique<Furble::Sony>(pDevice));
-    return true;
-  } else if (FujifilmSecure::matches(pDevice)) {
-    m_ConnectList.push_back(std::make_unique<Furble::FujifilmSecure>(pDevice));
     return true;
   }
 
   return false;
-}
-
-void CameraList::addFauxNY(void) {
-  m_ConnectList.push_back(std::make_unique<Furble::FauxNY>());
 }
 
 }  // namespace Furble

@@ -1,0 +1,12 @@
+﻿{
+    "domain":  "embedded",
+    "branch":  "main",
+    "id":  "fix-camera-list-reconnect",
+    "risk":  "medium",
+    "createdAt":  "2026-06-21T07:56:28Z",
+    "complexity":  "M",
+    "currentPhase":  "completed",
+    "status":  "completed",
+    "nextAction":  "已完成保存列表回连修复并通过构建",
+    "title":  "修复保存相机列表回连失败"
+}

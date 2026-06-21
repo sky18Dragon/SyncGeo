@@ -23,7 +23,6 @@ class Settings {
     INTERVAL,
     MULTICONNECT,
     RECONNECT,
-    FAUXNY,
     TOUCH_CALIBRATION,
     AUTOCONNECT,
   } type_t;

@@ -44,14 +44,7 @@ const UI_Text T_HOME_REMOTE = {"Remote", "遥控器"};
 const UI_Text T_HOME_DISCONNECT = {"Disconnect", "断开连接"};
 const UI_Text T_HOME_SLEEP = {"Sleep", "休眠"};
 
-const UI_Text T_CAM_FUJI = {"Fuji", "富士"};
-const UI_Text T_CAM_FUJIS = {"FujiS", "富士(安全)"};
-const UI_Text T_CAM_CANONS = {"CanonS", "佳能(智能)"};
-const UI_Text T_CAM_CANONR = {"CanonR", "佳能(遥控)"};
-const UI_Text T_CAM_NIKON = {"Nikon", "尼康"};
-const UI_Text T_CAM_SONY = {"Sony", "索尼"};
 const UI_Text T_CAM_RICOH = {"Ricoh", "理光"};
-const UI_Text T_CAM_FAUXNY = {"FauxNY", "FauxNY"};
 const UI_Text T_CAM_DEFAULT = {"Camera", "相机"};
 
 const UI_Text T_SYNCGEO = {"SyncGeo", "SyncGeo"};
@@ -212,23 +205,8 @@ uint8_t luminanceFromRgb565(uint16_t color) {
 const char *cameraTypeName(Furble::Camera::Type type) {
   using Type = Furble::Camera::Type;
   switch (type) {
-    case Type::FUJIFILM_BASIC:
-      return L(T_CAM_FUJI);
-    case Type::FUJIFILM_SECURE:
-      return L(T_CAM_FUJIS);
-    case Type::CANON_EOS_SMART:
-      return L(T_CAM_CANONS);
-    case Type::CANON_EOS_REMOTE:
-      return L(T_CAM_CANONR);
-    case Type::NIKON:
-      return L(T_CAM_NIKON);
-    case Type::SONY:
-      return L(T_CAM_SONY);
     case Type::RICOH:
       return L(T_CAM_RICOH);
-    case Type::FAUXNY:
-      return L(T_CAM_FAUXNY);
-    case Type::MOBILE_DEVICE:
     default:
       return L(T_CAM_DEFAULT);
   }
@@ -780,15 +758,10 @@ const char *UI::remotePowerLabel() const {
   if (camera == nullptr && !targets.empty()) camera = targets.front()->getCamera();
   if (camera == nullptr) return L(T_FOCUS_UNKNOWN);
 
-  switch (camera->getType()) {
-    case Camera::Type::RICOH:
-      return L(T_2S_SHOT);
-    case Camera::Type::CANON_EOS_SMART:
-    case Camera::Type::NIKON:
-      return L(T_FOCUS_UNKNOWN);
-    default:
-      return L(T_FOCUS);
+  if (camera->getType() == Camera::Type::RICOH) {
+    return L(T_2S_SHOT);
   }
+  return L(T_FOCUS);
 }
 
 const char *UI::controlStateName(Control::state_t state) const {
@@ -946,6 +919,10 @@ void UI::showSavedList() {
   CameraList::load();
   m_listFromScan = false;
   m_listCursor = 0;
+  if (CameraList::size() == 0 && CameraList::getLastLoadSkippedUnbondedCount() > 0) {
+    showMessage("Pair lost; scan", State::HOME);
+    return;
+  }
   m_state = State::CAMERA_LIST;
   m_renderDirty = true;
   render();
@@ -965,7 +942,7 @@ void UI::connectSelectedCamera() {
   m_selectedCamera = CameraList::get(m_listCursor);
   m_pendingSave = m_listFromScan;
   control.addActive(m_selectedCamera);
-  control.connectAll(false);
+  control.connectAll(!m_listFromScan);
   m_state = State::CONNECTING;
   m_renderDirty = true;
   render();
@@ -1019,7 +996,8 @@ void UI::pollGPS() {
 
 void UI::sendPulse(Control::cmd_t press, Control::cmd_t release) {
   auto &control = Control::getInstance();
-  if (control.getState() != Control::STATE_ACTIVE) {
+  const auto state = control.getState();
+  if (state != Control::STATE_ACTIVE && state != Control::STATE_CONNECTED_IDLE) {
     showMessage(L(T_NOT_CONNECTED), State::HOME);
     return;
   }

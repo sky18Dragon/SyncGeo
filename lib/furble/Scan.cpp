@@ -63,27 +63,6 @@ void Scan::startPairingScan(std::function<void(void *)> scanCallback, void *scan
   m_lockAcquired = true;
 }
 
-void Scan::startReconnectScan(std::function<void(void *)> scanCallback, void *scanPrivateData) {
-  // D2: 3s passive scan, interval=1600, window=80 — ~5% duty cycle
-  if (m_lockAcquired) stop();
-
-  ESP_LOGI(LOG_TAG, "Scan: reconnect mode (passive, 3s, interval=1600, window=80)");
-  m_Mode = Mode::RECONNECT;
-  m_Advertising->start(0, nullptr);
-  m_Scan->setScanCallbacks(this);
-  m_Scan->setActiveScan(false);
-  m_Scan->setDuplicateFilter(true);
-  m_Scan->setInterval(1600);
-  m_Scan->setWindow(80);
-
-  m_ScanResultCallback = scanCallback;
-  m_ScanResultPrivateData = scanPrivateData;
-  m_Scan->start(3, false);
-
-  Platform::getInstance().acquire(Platform::PowerLock::BLE_SCAN);
-  m_lockAcquired = true;
-}
-
 void Scan::start(std::function<void(void *)> scanCallback, void *scanPrivateData) {
   if (m_lockAcquired) stop();
 
@@ -94,17 +73,6 @@ void Scan::start(std::function<void(void *)> scanCallback, void *scanPrivateData
   m_ScanResultCallback = scanCallback;
   m_ScanResultPrivateData = scanPrivateData;
   m_Scan->start(0, false);
-
-  Platform::getInstance().acquire(Platform::PowerLock::BLE_SCAN);
-  m_lockAcquired = true;
-}
-
-void Scan::start(NimBLEScanCallbacks *pScanCallbacks, uint32_t duration) {
-  if (m_lockAcquired) stop();
-
-  m_Mode = Mode::PROTOCOL;
-  m_Scan->setScanCallbacks(pScanCallbacks);
-  m_Scan->start(duration, false);
 
   Platform::getInstance().acquire(Platform::PowerLock::BLE_SCAN);
   m_lockAcquired = true;

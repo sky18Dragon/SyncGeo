@@ -1,0 +1,12 @@
+﻿{
+    "domain":  "embedded",
+    "branch":  "main",
+    "id":  "fix-idle-remote-and-reconnect-scan",
+    "risk":  "medium",
+    "createdAt":  "2026-06-21T01:25:06Z",
+    "complexity":  "M",
+    "currentPhase":  "completed",
+    "status":  "completed",
+    "nextAction":  "已完成指定修复并通过构建",
+    "title":  "修复 idle 遥控唤醒、纳入字体资产、移除无效 reconnect scan"
+}

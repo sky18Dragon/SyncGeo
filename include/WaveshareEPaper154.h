@@ -34,6 +34,18 @@ class WaveshareEPaper154 {
   static constexpr gpio_num_t EPD_PWR_PIN = GPIO_NUM_6;
   static constexpr gpio_num_t AUDIO_PWR_PIN = GPIO_NUM_42;
   static constexpr gpio_num_t VBAT_PWR_PIN = GPIO_NUM_17;
+  static constexpr gpio_num_t RTC_INT_PIN = GPIO_NUM_5;
+  static constexpr gpio_num_t SD_CLK_PIN = GPIO_NUM_39;
+  static constexpr gpio_num_t SD_MISO_PIN = GPIO_NUM_40;
+  static constexpr gpio_num_t SD_MOSI_PIN = GPIO_NUM_41;
+  static constexpr gpio_num_t I2S_MCLK_PIN = GPIO_NUM_14;
+  static constexpr gpio_num_t I2S_SCLK_PIN = GPIO_NUM_15;
+  static constexpr gpio_num_t I2S_ASDOUT_PIN = GPIO_NUM_16;
+  static constexpr gpio_num_t I2S_LRCK_PIN = GPIO_NUM_38;
+  static constexpr gpio_num_t I2S_DSDIN_PIN = GPIO_NUM_45;
+  static constexpr gpio_num_t AUDIO_PA_CTRL_PIN = GPIO_NUM_46;
+  static constexpr gpio_num_t RTC_SENSOR_I2C_SDA_PIN = GPIO_NUM_47;
+  static constexpr gpio_num_t RTC_SENSOR_I2C_SCL_PIN = GPIO_NUM_48;
   static constexpr gpio_num_t BTN_REC_PIN = GPIO_NUM_0;
   static constexpr gpio_num_t BTN_PWR_PIN = GPIO_NUM_18;
   static constexpr int BAT_ADC_CHANNEL = 3;  // GPIO4, ADC1_CHANNEL_3 on ESP32-S3.
@@ -42,8 +54,8 @@ class WaveshareEPaper154 {
   static constexpr bool HAS_TOUCH = true;
   static constexpr gpio_num_t EPD_TP_INT_PIN = GPIO_NUM_21;
   static constexpr gpio_num_t EPD_TP_RST_PIN = GPIO_NUM_7;
-  static constexpr gpio_num_t ESP32_I2C_SDA_PIN = GPIO_NUM_47;
-  static constexpr gpio_num_t ESP32_I2C_SCL_PIN = GPIO_NUM_48;
+  static constexpr gpio_num_t ESP32_I2C_SDA_PIN = RTC_SENSOR_I2C_SDA_PIN;
+  static constexpr gpio_num_t ESP32_I2C_SCL_PIN = RTC_SENSOR_I2C_SCL_PIN;
   static constexpr uint8_t FT6336_I2C_ADDR = 0x38;
 #else
   static constexpr bool HAS_TOUCH = false;
@@ -89,6 +101,7 @@ class WaveshareEPaper154 {
   };
 
   void initPowerPins();
+  void disableUnusedPeripherals(bool includeSharedI2c);
   void initButtons();
   void initBatteryAdc();
   void initDisplay();

@@ -90,10 +90,6 @@ uint8_t Camera::getConnectProgress(void) const {
 
 bool Camera::isConnected(void) const {
   const std::lock_guard<std::mutex> lock(m_Mutex);
-  if (m_Type == Type::FAUXNY) {
-    return m_Connected;
-  }
-
   return m_Connected && m_Client && m_Client->isConnected();
 }
 

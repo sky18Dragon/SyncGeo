@@ -24,6 +24,26 @@ constexpr uint32_t TOUCH_DEBOUNCE_MS = 90;
 
 adc_oneshot_unit_handle_t g_adc1 = nullptr;
 
+void configurePinsInputNoPull(const gpio_num_t *pins, size_t count, const char *label) {
+  uint64_t mask = 0;
+  for (size_t i = 0; i < count; ++i) {
+    if (pins[i] >= GPIO_NUM_0 && pins[i] < GPIO_NUM_MAX) mask |= (1ULL << pins[i]);
+  }
+  if (mask == 0) return;
+
+  gpio_config_t input = {};
+  input.intr_type = GPIO_INTR_DISABLE;
+  input.mode = GPIO_MODE_INPUT;
+  input.pin_bit_mask = mask;
+  input.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  input.pull_up_en = GPIO_PULLUP_DISABLE;
+
+  const esp_err_t ret = gpio_config(&input);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to release unused %s pins: %s", label, esp_err_to_name(ret));
+  }
+}
+
 const uint8_t WF_FULL_1IN54[159] = {
     0x80, 0x48, 0x40, 0x0,  0x0,  0x0,  0x0,  0x0,  0x0,  0x0,  0x0,  0x0,
     0x40, 0x48, 0x80, 0x0,  0x0,  0x0,  0x0,  0x0,  0x0,  0x0,  0x0,  0x0,
@@ -393,6 +413,29 @@ void WaveshareEPaper154::initPowerPins() {
   gpio_set_level(VBAT_PWR_PIN, 1);
   gpio_set_level(AUDIO_PWR_PIN, 1);
   gpio_set_level(EPD_PWR_PIN, 1);
+
+  disableUnusedPeripherals(!HAS_TOUCH);
+}
+
+void WaveshareEPaper154::disableUnusedPeripherals(bool includeSharedI2c) {
+  // GPIO42 is the board audio/PA enable rail. Existing board logic treats high as off.
+  gpio_set_level(AUDIO_PWR_PIN, 1);
+
+  // The current firmware does not use Micro SD, ES8311/I2S audio, RTC alarm, or SHTC3.
+  // Release their signal pins to high impedance to avoid actively driving unused hardware.
+  static constexpr gpio_num_t sdPins[] = {SD_CLK_PIN, SD_MISO_PIN, SD_MOSI_PIN};
+  static constexpr gpio_num_t audioPins[] = {I2S_MCLK_PIN, I2S_SCLK_PIN, I2S_ASDOUT_PIN,
+                                             I2S_LRCK_PIN, I2S_DSDIN_PIN, AUDIO_PA_CTRL_PIN};
+  static constexpr gpio_num_t rtcIntPins[] = {RTC_INT_PIN};
+  static constexpr gpio_num_t sharedI2cPins[] = {RTC_SENSOR_I2C_SDA_PIN, RTC_SENSOR_I2C_SCL_PIN};
+
+  configurePinsInputNoPull(sdPins, sizeof(sdPins) / sizeof(sdPins[0]), "Micro SD");
+  configurePinsInputNoPull(audioPins, sizeof(audioPins) / sizeof(audioPins[0]), "I2S/audio");
+  configurePinsInputNoPull(rtcIntPins, sizeof(rtcIntPins) / sizeof(rtcIntPins[0]), "RTC INT");
+
+  if (includeSharedI2c) {
+    configurePinsInputNoPull(sharedI2cPins, sizeof(sharedI2cPins) / sizeof(sharedI2cPins[0]), "RTC/SHTC3 I2C");
+  }
 }
 
 void WaveshareEPaper154::initButtons() {
@@ -824,6 +867,7 @@ void WaveshareEPaper154::enterDeepSleep() {
   epaperPowerOff();
   gpio_set_level(AUDIO_PWR_PIN, 1);
   gpio_set_level(VBAT_PWR_PIN, 1);
+  disableUnusedPeripherals(true);
 
   const uint64_t wakeMask = (1ULL << BTN_REC_PIN) | (1ULL << BTN_PWR_PIN);
   ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup(wakeMask, ESP_EXT1_WAKEUP_ANY_LOW));

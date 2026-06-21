@@ -2,7 +2,6 @@
 
 #include "FurbleGPS.h"
 #include "FurblePlatform.h"
-#include "Scan.h"
 
 namespace Furble {
 Control::Target::Target(Camera *camera) {
@@ -110,20 +109,6 @@ Control &Control::getInstance(void) {
 Control::state_t Control::connectAll(void) {
   uint32_t timeout = m_InfiniteReconnect ? TIMEOUT_INFINITE_MS : TIMEOUT_DEFAULT_MS;
 
-  // D2: Start low-power reconnect scan before attempting connections.
-  // The scan callback fires through Scan::onResult → CameraList::match, populating
-  // the global scan result list. connectAll then iterates its own m_Targets.
-  bool reconnectScanStarted = false;
-  if (m_InfiniteReconnect) {
-    Scan::getInstance().startReconnectScan(
-        [](void *) {
-          // CameraList::match already called by Scan::onResult before this lambda fires.
-          // Results accumulate in CameraList; Control's reconnect path reads from m_Targets.
-        },
-        nullptr);
-    reconnectScanStarted = true;
-  }
-
   // Snapshot target pointers under mutex to avoid holding it during connect/scan ops (narrow scope).
   Camera *camera = nullptr;
   {
@@ -150,10 +135,6 @@ Control::state_t Control::connectAll(void) {
         applyProfile(ActiveProfile::CONTROL);
       }
     }
-  }
-
-  if (reconnectScanStarted) {
-    Scan::getInstance().stop();
   }
 
   if (allConnected()) {

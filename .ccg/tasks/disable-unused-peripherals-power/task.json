@@ -1,0 +1,12 @@
+{
+  "id": "disable-unused-peripherals-power",
+  "title": "Disable unused peripherals for lower power",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "embedded",
+  "currentPhase": "completed",
+  "nextAction": "Implemented and verified with both PlatformIO environments",
+  "createdAt": "2026-06-21T08:26:59Z",
+  "branch": "main"
+}
